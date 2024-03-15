@@ -30,11 +30,11 @@ Quarto (v1.4), see https://quarto.org/docs/get-started/
 quarto preview . 
 
 # Build the HTML document
-quarto render .
+quarto render 1-SSS-explo
 
 # Build the PDF document
 quarto install tinytex 
-quarto render rasters-SSS-explo.qmd --to pdf
+quarto render 1-SSS-explo --to pdf
 ```
 
 
