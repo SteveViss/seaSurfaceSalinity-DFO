@@ -8,10 +8,6 @@ By Julien Laliberté et Steve Vissault
 
 ## Development
 
-### Requirements
-
-Quarto (v1.4), see https://quarto.org/docs/get-started/
-
 ### Build this document
 
 #### Using RStudio
@@ -22,12 +18,14 @@ Quarto (v1.4), see https://quarto.org/docs/get-started/
 
 #### Using the command line
 
+**Requirements:** Quarto (v1.4), see https://quarto.org/docs/get-started/
+
 1. Open a terminal
 2. Run one of the following command line
 
 ```bash
 # Preview the document in browser 
-quarto preview . 
+quarto preview 1-SSS-explo
 
 # Build the HTML document
 quarto render 1-SSS-explo
