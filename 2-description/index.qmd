@@ -1,0 +1,34 @@
+---
+title: "Raster quality assessment"
+---
+
+## Load rasters
+
+```{R load-rasters}
+rs_filenames <- list.files("../data/raster_salinity_mask", pattern = "*.tif$", full.names = TRUE)
+rasters <- purrr::map(rs_filenames, terra::rast) |> terra::rast()
+```
+
+## Data validation
+
+### Salinity range values for each timestamp
+
+Get descriptive stats
+
+```{R stats}
+stats <- lapply(rasters,
+        terra::global, fun = c("mean", "sd", "min", "max"), na.rm=TRUE, .progress = TRUE
+    ) |> 
+    dplyr::bind_rows() |>
+    dplyr::mutate(timestamp = terra::time(rasters))
+```
+
+Do we have rasters with salinity values not between 0 and 37?
+
+```{R}
+dplyr::filter(stats, min < 0 | max > 37)
+```
+
+### How many cells contains NA's (without inland cells)?
+
+NA's values on sea surface is produce by cloud and ice covers.

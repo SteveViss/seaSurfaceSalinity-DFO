@@ -1,0 +1,48 @@
+---
+title: "Raster preparation"
+---
+
+## Load rasters
+
+```{R load-rasters}
+rs_filenames <- list.files("../data/raster_salinity", pattern = "*.tif", full.names = TRUE)
+rasters <- purrr::map(rs_filenames, terra::rast) |> terra::rast()
+```
+
+## Extract timestamp 
+
+Extract timestamp from filenames
+
+```{R extract-time}
+timestamps<- as.Date(stringr::str_extract(rs_filenames, "\\d{4}\\-\\d{2}\\-\\d{2}"))
+terra::time(rasters) <- timestamps
+```
+
+## Mask inland cells
+
+Download land shapefile from https://www.naturalearthdata.com/
+
+```{R mask-1}
+ne_land <- rnaturalearth::ne_download(category = "physical", type = "land", returnclass = "sf", scale = "large") |> sf::st_make_valid()
+```
+
+We crop this shapefile with the raster extent in order to visually assess the spatial resolution.
+
+```{R mask-2}
+area <- sf::st_crop(ne_land, sf::st_bbox(rasters))
+mapview::mapview(area)
+```
+
+We mask each raster: replace values with NA when the cell is inland.
+Because this step is compute intensive, we write all masked raster in `data/raster_salinity_masked`.
+
+```{R mask-3, eval = FALSE}
+out_folder <- file.path("../data", "raster_salinity_masked")
+dir.create(out_folder, recursive = TRUE, showWarnings = FALSE)
+lapply(rasters, \(r){
+    r_masked <- terra::mask(r, area, inverse = TRUE)
+    filename <- paste0(names(r_masked), "_mask.tif")
+    terra::writeRaster(r_masked, file.path("../data", "raster_salinity_masked", filename), overwrite=TRUE)
+}) |> invisible()
+```
+

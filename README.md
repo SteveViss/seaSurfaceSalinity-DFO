@@ -12,7 +12,7 @@ By Julien Laliberté et Steve Vissault
 
 #### Using RStudio
 
-1. Ensure that `/data/raster_salinity` exists and contains the `OC-SSS` outputs.
+1. Ensure that `/data/raster_salinity` and `/data/raster_salinity_mask` exist and contains the `OC-SSS` outputs.
 2. Open the file `*.qmd` in RStudio
 3. To compile, follow this step: https://quarto.org/docs/get-started/hello/rstudio.html#rendering
 
@@ -25,14 +25,12 @@ By Julien Laliberté et Steve Vissault
 
 ```bash
 # Preview the document in browser 
-quarto preview 1-SSS-explo
+quarto preview 1-preparation
 
 # Build the HTML document
-quarto render 1-SSS-explo
+quarto render 1-preparation
 
 # Build the PDF document
 quarto install tinytex 
-quarto render 1-SSS-explo --to pdf
+quarto render 1-preparation --to pdf
 ```
-
-

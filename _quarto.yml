@@ -1,0 +1,22 @@
+project:
+  type: website
+
+website:
+  title: "Sea surface salinity interpolation"
+  navbar:
+    tools:
+      - icon: github
+        href: https://github.com/SteveViss/seaSurfaceSalinity-DFO
+  sidebar:
+    style: "floating"
+    search: true
+    contents:
+      - section: "Data preparation"
+        contents:
+          - 1-preparation/index.qmd
+          - 2-description/index.qmd
+
+format:
+  html:
+    theme: cosmo
+    toc: true
