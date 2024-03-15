@@ -1,20 +1,26 @@
-# Interpolation Sea surface salinity
+# Sea surface salinity interpolation 
 
 By Julien Laliberté et Steve Vissault
 
-## Requirements
+## HTML Pages
 
-- Quarto (1.4), see https://quarto.org/docs/get-started/
+- [Explore the sea surface salinity products derivated from Spectral remote-sensing reflectance ](https://steveviss.github.io/seaSurfaceSalinity-DFO/rasters-SSS-explo.html)
 
-## Build this document
+## Development
 
-### Using RStudio
+### Requirements
+
+Quarto (v1.4), see https://quarto.org/docs/get-started/
+
+### Build this document
+
+#### Using RStudio
 
 1. Ensure that `/data/raster_salinity` exists and contains the `OC-SSS` outputs.
 2. Open the file `rasters-SSS-explo.qmd` in RStudio
 3. To compile, follow this step: https://quarto.org/docs/get-started/hello/rstudio.html#rendering
 
-### Using the command line
+#### Using the command line
 
 1. Open a terminal
 2. Run one of the following commandline
