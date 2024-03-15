@@ -1,0 +1,79 @@
+[
+  {
+    "objectID": "2-description/index.html",
+    "href": "2-description/index.html",
+    "title": "Raster quality assessment",
+    "section": "",
+    "text": "rs_filenames &lt;- list.files(\"../data/raster_salinity_mask\", pattern = \"*.tif$\", full.names = TRUE)\nrasters &lt;- purrr::map(rs_filenames, terra::rast) |&gt; terra::rast()",
+    "crumbs": [
+      "Data preparation",
+      "Raster quality assessment"
+    ]
+  },
+  {
+    "objectID": "2-description/index.html#load-rasters",
+    "href": "2-description/index.html#load-rasters",
+    "title": "Raster quality assessment",
+    "section": "",
+    "text": "rs_filenames &lt;- list.files(\"../data/raster_salinity_mask\", pattern = \"*.tif$\", full.names = TRUE)\nrasters &lt;- purrr::map(rs_filenames, terra::rast) |&gt; terra::rast()",
+    "crumbs": [
+      "Data preparation",
+      "Raster quality assessment"
+    ]
+  },
+  {
+    "objectID": "2-description/index.html#data-validation",
+    "href": "2-description/index.html#data-validation",
+    "title": "Raster quality assessment",
+    "section": "Data validation",
+    "text": "Data validation\n\nSalinity range values for each timestamp\nGet descriptive stats\n\nstats &lt;- lapply(rasters,\n        terra::global, fun = c(\"mean\", \"sd\", \"min\", \"max\"), na.rm=TRUE, .progress = TRUE\n    ) |&gt; \n    dplyr::bind_rows() |&gt;\n    dplyr::mutate(timestamp = terra::time(rasters))\n\nDo we have rasters with salinity values not between 0 and 37?\n\ndplyr::filter(stats, min &lt; 0 | max &gt; 37)\n\n                        mean        sd       min      max  timestamp\nsalinity-2003-04-17 29.02488 4.4933253 -0.003400 32.42418 2003-04-17\nsalinity-2004-03-10 30.52339 3.8860529 -0.080303 32.59909 2004-03-10\nsalinity-2004-05-16 29.58195 2.0991509 -0.271683 32.00092 2004-05-16\nsalinity-2004-05-17 30.15248 1.6793073 -0.188585 32.12121 2004-05-17\nsalinity-2004-05-19 29.19084 3.0308916 -0.548098 32.13406 2004-05-19\nsalinity-2004-05-20 30.60701 1.3548413 -0.404110 32.07977 2004-05-20\nsalinity-2004-05-21 27.91923 4.2299977 -0.422826 31.83336 2004-05-21\nsalinity-2004-10-28 29.61676 2.5930395 -0.103338 31.66547 2004-10-28\nsalinity-2004-10-29 29.63582 2.2356772 -0.257240 31.92707 2004-10-29\nsalinity-2005-02-13 28.76688 4.2714170 -0.045583 32.44712 2005-02-13\nsalinity-2005-05-13 25.73925 6.1606443 -1.532473 32.21547 2005-05-13\nsalinity-2005-10-29 29.15481 3.7150157 -0.315724 31.78875 2005-10-29\nsalinity-2006-05-09 30.07620 1.9753367 -0.129537 31.92580 2006-05-09\nsalinity-2006-05-13 29.44779 2.8572726 -1.125908 31.98964 2006-05-13\nsalinity-2006-05-14 29.82568 2.9155081 -1.120377 32.21265 2006-05-14\nsalinity-2007-05-22 29.80767 2.6315471 -0.351521 32.62202 2007-05-22\nsalinity-2007-10-30 30.08701 2.8233044 -0.146368 31.91603 2007-10-30\nsalinity-2009-02-09 26.60509 6.8235379 -0.026563 32.54905 2009-02-09\nsalinity-2009-02-13 26.26306 5.9518942 -0.010040 32.33683 2009-02-13\nsalinity-2009-03-10 30.97479 3.3584519 -0.087318 32.66853 2009-03-10\nsalinity-2012-05-13 30.43487 1.9070723 -0.281568 31.89081 2012-05-13\nsalinity-2013-08-31 29.65433 1.3975913 -0.170810 31.15768 2013-08-31\nsalinity-2013-09-10 30.14931 1.1407285 -0.207443 31.38065 2013-09-10\nsalinity-2014-10-01 30.08928 1.2941860 -0.041339 31.53555 2014-10-01\nsalinity-2015-10-01 28.29265 2.6737163 -0.026602 31.14316 2015-10-01\nsalinity-2015-10-03 29.57600 1.9674698 -0.050693 31.38930 2015-10-03\nsalinity-2015-10-04 29.85863 1.7977150 -0.304927 31.30877 2015-10-04\nsalinity-2016-10-03 29.41572 1.8190127 -0.203324 31.21386 2016-10-03\nsalinity-2016-10-05 29.71978 1.4502170 -0.044884 31.16191 2016-10-05\nsalinity-2016-10-06 29.81841 1.3157417 -0.027798 31.21347 2016-10-06\nsalinity-2017-09-04 28.26940 2.4235378 -0.370246 30.56250 2017-09-04\nsalinity-2017-09-08 28.14310 1.3663478 -0.583405 30.38492 2017-09-08\nsalinity-2017-09-10 28.67292 1.3972597 -0.488402 30.53285 2017-09-10\nsalinity-2017-09-11 28.69329 0.9635926 -0.321061 30.40902 2017-09-11\nsalinity-2017-09-19 28.11818 2.9687933 -0.617724 30.12645 2017-09-19\nsalinity-2017-10-11 29.42796 1.7879144 -0.025462 31.23138 2017-10-11\nsalinity-2017-10-12 28.79281 2.3855927 -0.076412 31.07332 2017-10-12\nsalinity-2018-05-02 30.04266 3.7179051 -0.240033 32.58421 2018-05-02\nsalinity-2018-05-07 29.37513 2.8164175 -0.130770 32.05915 2018-05-07\nsalinity-2018-05-09 29.51587 2.3606911 -0.363175 31.70779 2018-05-09\nsalinity-2018-09-12 29.24452 1.4141163 -0.415337 31.45929 2018-09-12\nsalinity-2018-09-14 28.86422 1.8819233 -0.003266 30.98374 2018-09-14\nsalinity-2018-09-29 28.42929 2.2843661 -0.315778 31.11126 2018-09-29\nsalinity-2018-10-06 30.00884 1.2628792 -0.246992 31.34215 2018-10-06\nsalinity-2018-10-15 29.80839 1.6853690 -0.231588 32.14894 2018-10-15\nsalinity-2019-05-05 30.00260 3.3601394 -0.481432 32.53221 2019-05-05\nsalinity-2019-05-06 30.25322 2.9981773 -0.358658 32.78534 2019-05-06\nsalinity-2019-05-08 29.07991 3.4176876 -0.576689 31.66084 2019-05-08\nsalinity-2019-05-12 29.37342 4.0251387 -0.598730 31.77873 2019-05-12\nsalinity-2019-08-12 29.07362 1.5620113 -0.523610 31.07258 2019-08-12\nsalinity-2019-08-23 28.20958 1.0034693 -0.332879 30.88012 2019-08-23\nsalinity-2019-09-12 28.62764 1.6874187 -1.450008 31.26742 2019-09-12\nsalinity-2019-09-13 29.02418 1.5418580 -0.547073 31.21874 2019-09-13\nsalinity-2019-10-14 29.89379 2.3173815 -0.390616 31.50653 2019-10-14\nsalinity-2019-10-26 29.31942 2.3800300 -0.039749 31.75659 2019-10-26\nsalinity-2020-05-06 26.74636 4.5705095 -0.483749 31.15638 2020-05-06\nsalinity-2020-05-07 28.29818 3.3930704 -0.299416 31.42789 2020-05-07\nsalinity-2020-05-08 29.61123 2.0054815 -0.367150 31.42269 2020-05-08\nsalinity-2020-05-11 29.52653 2.4434721 -0.712261 31.44886 2020-05-11\nsalinity-2020-08-17 29.15869 1.8928248 -0.425791 30.70887 2020-08-17\nsalinity-2020-08-24 29.18854 1.4612183 -0.810221 30.79221 2020-08-24\nsalinity-2020-09-01 29.45231 1.4877345 -1.116949 30.98997 2020-09-01\nsalinity-2020-09-04 28.50526 1.9818231 -0.251335 31.01294 2020-09-04\nsalinity-2020-09-05 29.31057 1.5726613 -0.433867 31.05035 2020-09-05\nsalinity-2020-09-15 29.16901 1.1392042 -0.480660 30.80207 2020-09-15\nsalinity-2020-09-21 29.39820 2.1985970 -0.516014 31.04444 2020-09-21\nsalinity-2021-04-27 27.58661 5.8876300 -0.164677 31.54781 2021-04-27\nsalinity-2021-04-28 26.95354 4.9985266 -0.160702 31.29700 2021-04-28\nsalinity-2021-08-21 29.16128 1.3234515 -0.711132 30.61465 2021-08-21\nsalinity-2021-08-29 29.84598 0.8748053 -0.807546 30.99614 2021-08-29\nsalinity-2021-09-17 29.39025 1.5112892 -1.080562 30.88506 2021-09-17\nsalinity-2021-09-20 29.20685 1.9136262 -1.556971 31.02834 2021-09-20\nsalinity-2021-09-29 29.46147 0.9902642 -0.253595 31.10312 2021-09-29\nsalinity-2022-04-28 11.90207 8.4499783 -0.357271 30.25015 2022-04-28\nsalinity-2022-05-02 29.56669 3.3885625 -0.357132 32.60049 2022-05-02\nsalinity-2022-05-12 29.75009 2.1925315 -0.586720 31.80964 2022-05-12\nsalinity-2022-08-11 28.43433 1.6176736 -0.213908 31.06217 2022-08-11\nsalinity-2022-08-15 28.04114 1.8755552 -0.117210 31.12995 2022-08-15\nsalinity-2022-08-20 28.74947 1.7175951 -0.229752 31.05364 2022-08-20\nsalinity-2022-09-03 28.80994 1.3597871 -0.313321 30.83948 2022-09-03\nsalinity-2022-10-03 29.29431 1.7536298 -0.300036 31.35801 2022-10-03\nsalinity-2022-10-05 29.42109 1.5358532 -0.815880 31.35610 2022-10-05\n\n\n\n\nHow many cells contains NA’s (without inland cells)?\nNA’s values on sea surface is produce by cloud and ice covers.",
+    "crumbs": [
+      "Data preparation",
+      "Raster quality assessment"
+    ]
+  },
+  {
+    "objectID": "1-preparation/index.html",
+    "href": "1-preparation/index.html",
+    "title": "Raster preparation",
+    "section": "",
+    "text": "rs_filenames &lt;- list.files(\"../data/raster_salinity\", pattern = \"*.tif\", full.names = TRUE)\nrasters &lt;- purrr::map(rs_filenames, terra::rast) |&gt; terra::rast()",
+    "crumbs": [
+      "Data preparation",
+      "Raster preparation"
+    ]
+  },
+  {
+    "objectID": "1-preparation/index.html#load-rasters",
+    "href": "1-preparation/index.html#load-rasters",
+    "title": "Raster preparation",
+    "section": "",
+    "text": "rs_filenames &lt;- list.files(\"../data/raster_salinity\", pattern = \"*.tif\", full.names = TRUE)\nrasters &lt;- purrr::map(rs_filenames, terra::rast) |&gt; terra::rast()",
+    "crumbs": [
+      "Data preparation",
+      "Raster preparation"
+    ]
+  },
+  {
+    "objectID": "1-preparation/index.html#extract-timestamp",
+    "href": "1-preparation/index.html#extract-timestamp",
+    "title": "Raster preparation",
+    "section": "Extract timestamp",
+    "text": "Extract timestamp\nExtract timestamp from filenames\n\ntimestamps&lt;- as.Date(stringr::str_extract(rs_filenames, \"\\\\d{4}\\\\-\\\\d{2}\\\\-\\\\d{2}\"))\nterra::time(rasters) &lt;- timestamps",
+    "crumbs": [
+      "Data preparation",
+      "Raster preparation"
+    ]
+  },
+  {
+    "objectID": "1-preparation/index.html#mask-inland-cells",
+    "href": "1-preparation/index.html#mask-inland-cells",
+    "title": "Raster preparation",
+    "section": "Mask inland cells",
+    "text": "Mask inland cells\nDownload land shapefile from https://www.naturalearthdata.com/\n\nne_land &lt;- rnaturalearth::ne_download(category = \"physical\", type = \"land\", returnclass = \"sf\", scale = \"large\") |&gt; sf::st_make_valid()\n\nReading layer `ne_10m_land' from data source `/tmp/RtmpN0vk5G/ne_10m_land.shp' using driver `ESRI Shapefile'\nSimple feature collection with 11 features and 3 fields\nGeometry type: MULTIPOLYGON\nDimension:     XY\nBounding box:  xmin: -180 ymin: -90 xmax: 180 ymax: 83.6341\nGeodetic CRS:  WGS 84\n\n\nWe crop this shapefile with the raster extent in order to visually assess the spatial resolution.\n\narea &lt;- sf::st_crop(ne_land, sf::st_bbox(rasters))\n\nWarning: attribute variables are assumed to be spatially constant throughout\nall geometries\n\nmapview::mapview(area)\n\n\n\n\n\nWe mask each raster: replace values with NA when the cell is inland. Because this step is compute intensive, we write all masked raster in data/raster_salinity_masked.\n\nout_folder &lt;- file.path(\"../data\", \"raster_salinity_masked\")\ndir.create(out_folder, recursive = TRUE, showWarnings = FALSE)\nlapply(rasters, \\(r){\n    r_masked &lt;- terra::mask(r, area, inverse = TRUE)\n    filename &lt;- paste0(names(r_masked), \"_mask.tif\")\n    terra::writeRaster(r_masked, file.path(\"../data\", \"raster_salinity_masked\", filename), overwrite=TRUE)\n}) |&gt; invisible()",
+    "crumbs": [
+      "Data preparation",
+      "Raster preparation"
+    ]
+  }
+]

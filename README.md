@@ -2,9 +2,7 @@
 
 By Julien Laliberté et Steve Vissault
 
-## HTML Pages
-
-- [Explore the sea surface salinity products derivated from Spectral remote-sensing reflectance ](https://steveviss.github.io/seaSurfaceSalinity-DFO/1-SSS-explo/)
+[Access the main documentation](https://steveviss.github.io/seaSurfaceSalinity-DFO/)
 
 ## Development
 
@@ -25,12 +23,8 @@ By Julien Laliberté et Steve Vissault
 
 ```bash
 # Preview the document in browser 
-quarto preview 1-preparation
+quarto preview 
 
 # Build the HTML document
-quarto render 1-preparation
-
-# Build the PDF document
-quarto install tinytex 
-quarto render 1-preparation --to pdf
+quarto render 
 ```

@@ -1,12 +1,10 @@
 project:
   type: website
+  output-dir: docs
 
 website:
   title: "Sea surface salinity interpolation"
-  navbar:
-    tools:
-      - icon: github
-        href: https://github.com/SteveViss/seaSurfaceSalinity-DFO
+  reader-mode: true
   sidebar:
     style: "floating"
     search: true
@@ -15,6 +13,9 @@ website:
         contents:
           - 1-preparation/index.qmd
           - 2-description/index.qmd
+    tools:
+      - icon: github
+        href: https://github.com/SteveViss/seaSurfaceSalinity-DFO
 
 format:
   html:
