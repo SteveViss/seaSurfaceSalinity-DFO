@@ -17,13 +17,13 @@ Quarto (v1.4), see https://quarto.org/docs/get-started/
 #### Using RStudio
 
 1. Ensure that `/data/raster_salinity` exists and contains the `OC-SSS` outputs.
-2. Open the file `rasters-SSS-explo.qmd` in RStudio
+2. Open the file `*.qmd` in RStudio
 3. To compile, follow this step: https://quarto.org/docs/get-started/hello/rstudio.html#rendering
 
 #### Using the command line
 
 1. Open a terminal
-2. Run one of the following commandline
+2. Run one of the following command line
 
 ```bash
 # Preview the document in browser 
