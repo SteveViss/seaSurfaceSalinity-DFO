@@ -6,7 +6,7 @@ title: "Raster quality assessment"
 
 ```{R load-rasters}
 rs_filenames <- list.files("../data/raster_salinity_mask", pattern = "*.tif$", full.names = TRUE)
-rasters <- purrr::map(rs_filenames, terra::rast) |> terra::rast()
+rasters <- terra::rast(rs_filenames)
 ```
 
 ## Data validation
