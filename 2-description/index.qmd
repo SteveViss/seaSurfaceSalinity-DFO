@@ -31,4 +31,5 @@ dplyr::filter(stats, min < 0 | max > 37)
 
 ### How many cells contains NA's (without inland cells)?
 
-NA's values on sea surface is produce by cloud and ice covers.
+ NAs often result from clouds, quite frequently from sea ice, and sometimes from areas that were not scanned by satellites on certain days. In the rarer category, there are numerous reasons why ocean color data may be unavailable, including instances of atmospheric correction failure.
+
