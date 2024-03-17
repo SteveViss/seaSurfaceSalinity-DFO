@@ -6,7 +6,7 @@ By Julien Laliberté et Steve Vissault
 
 ## Development
 
-### Build this document
+### Build the documentation
 
 #### Using RStudio
 
@@ -27,4 +27,10 @@ quarto preview
 
 # Build the HTML document
 quarto render 
+```
+
+### Publish on Github pages
+
+```bash
+quarto publish gh-pages --no-browser
 ```
