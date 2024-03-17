@@ -37,12 +37,12 @@ We mask each raster: replace values with NA when the cell is inland.
 Because this step is compute intensive, we write all masked raster in `data/raster_salinity_masked`.
 
 ```{R mask-3, eval = FALSE}
-out_folder <- file.path("../data", "raster_salinity_masked")
+out_folder <- file.path("../data", "raster_salinity_mask")
 dir.create(out_folder, recursive = TRUE, showWarnings = FALSE)
 lapply(rasters, \(r){
     r_masked <- terra::mask(r, area, inverse = TRUE)
     filename <- paste0(names(r_masked), "_mask.tif")
-    terra::writeRaster(r_masked, file.path("../data", "raster_salinity_masked", filename), overwrite=TRUE)
+    terra::writeRaster(r_masked, file.path("../data", "raster_salinity_mask", filename), overwrite=TRUE)
 }) |> invisible()
 ```
 
