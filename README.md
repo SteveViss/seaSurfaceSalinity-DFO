@@ -6,6 +6,13 @@ By Julien Laliberté et Steve Vissault
 
 ## Development
 
+### Install dependancies
+
+```{R}
+install.packages("renv")
+renv::restore()
+```
+
 ### Build the documentation
 
 #### Using RStudio

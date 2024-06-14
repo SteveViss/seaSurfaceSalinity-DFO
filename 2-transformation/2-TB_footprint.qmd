@@ -1,0 +1,66 @@
+---
+title: "Raster spatial and temporal overlap"
+---
+
+## Get overall pixels count for each Sea surface salinity data surfaces
+
+```{R, eval = FALSE}
+rs_filenames <- list.files("data/SSS-TB-prep", pattern = "*.tif$", full.names = TRUE)
+rasters <- terra::rast(rs_filenames)
+
+count_TB <- sum(!is.na(rasters))
+
+rs_filenames <- list.files("data/SSS-OC-prep", pattern = "*.tif$", full.names = TRUE)
+rasters <- terra::rast(rs_filenames)
+
+count_OC <- sum(!is.na(rasters))
+
+terra::writeRaster(terra::rast(c(count_OC = count_OC, count_TB = count_TB)), "data/count_pixels_OC_TB.tiff")
+```
+
+## Compare OC and TB spatial cover
+
+```{R}
+library(leafsync)
+rs_count <- terra::rast("data/count_pixels_OC_TB.tiff")
+leafsync::sync(mapview::mapview(rs_count["count_OC"]), mapview::mapview(rs_count["count_TB"]))
+```
+
+## Get TB footprint
+
+We isolated TB and OC overlap area and perform interpolation within this area.
+
+```{R}
+area_TB <- rs_count['count_TB']
+area_TB[area_TB > 0] <- 1
+area_TB[area_TB == 0] <- NA 
+
+interpolation_area <- area_TB |>
+    terra::as.polygons(na.rm=TRUE, dissolve = TRUE, values=FALSE) |>
+    sf::st_as_sf()
+
+sf::st_write(interpolation_area, "data/interpolation_area.shp")
+
+mapview::mapview(interpolation_area)
+```
+
+## Crop and mask OC values using TB footprint
+
+```{R, eval = FALSE}
+TB_footprint <- sf::st_read("data/interpolation_area.shp")
+
+rasters <- list.files("data/SSS-OC-prep", pattern = ".tif$", full.names = TRUE) |>
+    terra::rast()
+
+timestamps <- terra::time(rasters)
+
+rasters_crop <- rasters |>
+    terra::crop(TB_footprint, mask = TRUE)
+
+out_folder <- file.path("data", "SSS-OC-crop-mask")
+
+dir.create(out_folder, recursive = TRUE, showWarnings = FALSE)
+names(rasters_crop) <- paste0("SSS-OC-crop-", as.character(timestamps))
+
+raster::writeRaster(raster::as.raster(rasters_crop), overwrite=TRUE, bylayer = file.path("data", "SSS-OC-crop-mask", paste0(names(rasters_crop), "_crop.tif")))
+```

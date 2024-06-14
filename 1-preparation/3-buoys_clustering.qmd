@@ -1,0 +1,53 @@
+---
+title: "Buoys clustering"
+---
+
+## Data loading
+
+```{R}
+library(feather)
+files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
+
+buoy_data <- files |> purrr::map_df(\(x) {
+        feather::read_feather(x) |> 
+            tidyr::drop_na(IS) |>
+            dplyr::filter(is_origin == "buoy") |>
+            dplyr::select(-TB, -OC)
+    }, .progress = TRUE)
+
+buoy_data_wth_locid <- buoy_data |>
+    dplyr::group_by(lat, lon) |>
+    dplyr::mutate(group_id = dplyr::cur_group_id()) |>
+    dplyr::ungroup()
+```
+
+## Clustering
+
+```{R}
+buoy_locations <- buoy_data_wth_locid |> 
+    dplyr::select(group_id, lon, lat) |>
+    dplyr::distinct() 
+
+geodist <- geosphere::distm(buoy_locations[,c("lon", "lat")])
+
+# cluster all points using a hierarchical clustering approach
+hc <- hclust(as.dist(geodist), method="complete")
+
+# define clusters based on a tree "height" cutoff "d" 
+buoy_locations$clust_id <- cutree(hc, h=10000)
+
+# Transform buoy as sf object
+buoy_locations <- buoy_locations |>
+    sf::st_as_sf(coords = c("lon", "lat"), crs = 4326)
+
+# Visual checkup
+mapview::mapview(buoy_locations, zcol = "clust_id")
+
+# Join cluster_id based on group_id
+buoy_data_with_location <- buoy_data_wth_locid |>
+    dplyr::left_join(buoy_locations) |> 
+    dplyr::rename(buoy_id = clust_id) 
+
+# Write buoy data with locations
+saveRDS(buoy_data_with_location, "data/IS_SSS_buoy_locations.rds")
+```

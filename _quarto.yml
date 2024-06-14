@@ -12,7 +12,7 @@ website:
       - section: "Data preparation"
         contents:
           - 1-preparation/index.qmd
-          - 2-description/index.qmd
+          - 2-transformation/index.qmd
     tools:
       - icon: github
         href: https://github.com/SteveViss/seaSurfaceSalinity-DFO

@@ -1,0 +1,38 @@
+---
+title: "SSS-TB - Raster preparation"
+---
+
+# SSS-TB
+
+Rasters preparation for Sea surface salinity derivated from NASA Soil Moisture Active Passive.
+See [Product - NASA Soil Moisture Active Passive](https://podaac.jpl.nasa.gov/dataset/SMAP_RSS_L3_SSS_SMI_8DAY-RUNNINGMEAN_V4).
+
+## Load rasters
+
+```{R load-rasters}
+rs_filenames <- list.files("data/SSS-TB-raw", pattern = "*.tif", full.names = TRUE)
+rasters <- terra::rast(rs_filenames)
+```
+
+## Extract timestamp 
+
+Extract timestamp from filenames
+
+```{R extract-time}
+timestamps <- as.Date(stringr::str_extract(rs_filenames, "\\d{8}"), format = "%Y%m%d")
+terra::time(rasters) <- timestamps
+```
+
+## Write rasters with timestamp
+
+```{R}
+out_folder <- file.path("data", "SSS-TB-prep")
+dir.create(out_folder, recursive = TRUE, showWarnings = FALSE)
+names(rasters) <- paste0("SSS-TB-", as.character(timestamps))
+lapply(rasters, \(r){
+    filename <- paste0(names(r), "_prep.tif")
+    terra::writeRaster(r, file.path("data", "SSS-TB-prep", filename), overwrite=TRUE)
+}) |> invisible()
+```
+
+

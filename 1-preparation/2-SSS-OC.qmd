@@ -1,0 +1,70 @@
+---
+title: "SSS-OC - Raster preparation"
+---
+
+# SSS-OC
+
+Rasters preparation for Sea surface salinity derivated from ocean colorimetry.
+
+## Load rasters
+
+```{R load-rasters}
+rs_filenames <- list.files("data/SSS-OC-raw", pattern = "*.tif", full.names = TRUE)
+rasters <- terra::rast(rs_filenames)
+```
+
+## Extract timestamp 
+
+Extract timestamp from filenames
+
+```{R extract-time}
+timestamps <- as.Date(stringr::str_extract(rs_filenames, "\\d{4}\\-\\d{2}\\-\\d{2}"))
+terra::time(rasters) <- timestamps
+```
+
+## Mask inland cells and limit salinity range values between 0 to 37 psu.
+
+Download land shapefile from https://www.naturalearthdata.com/
+
+```{R mask-1}
+ne_land <- rnaturalearth::ne_download(category = "physical", type = "land", returnclass = "sf", scale = "large") |> sf::st_make_valid()
+```
+
+We crop this shapefile with the raster extent in order to visually assess the spatial resolution.
+
+```{R mask-2}
+area <- sf::st_crop(ne_land, sf::st_bbox(rasters))
+mapview::mapview(area)
+```
+
+We mask each raster: replace values with NA when the cell is inland. We also enforce salinity values between 0 and 37.
+Because this step is compute intensive, we write all masked raster in `data/SSS-OC_masked`.
+
+```{R mask-3, eval = FALSE}
+out_folder <- file.path("data", "SSS-OC-prep")
+dir.create(out_folder, recursive = TRUE, showWarnings = FALSE)
+names(rasters) <- paste0("SSS-OC-", as.character(timestamps))
+lapply(rasters, \(r){
+    r[r<0] <- 0
+    r[r>37] <- 37
+    r_masked <- terra::mask(r, area, inverse = TRUE)
+    filename <- paste0(names(r), "_prep.tif")
+    terra::writeRaster(r_masked, file.path("data", "SSS-OC-prep", filename), overwrite=TRUE)
+}) |> invisible()
+```
+
+We want make sure values are between 0 and 37 psu.
+
+```{R}
+rs_filenames <- list.files("data/SSS-OC-prep", pattern = "*.tif$", full.names = TRUE)
+rasters <- terra::rast(rs_filenames)
+
+stats <- lapply(rasters,
+        terra::global, fun = c("mean", "sd", "min", "max"), na.rm=TRUE, .progress = TRUE
+    ) |> 
+    dplyr::bind_rows() |>
+    dplyr::mutate(timestamp = terra::time(rasters))
+
+dplyr::filter(stats, min < 0 | max > 37)
+```
+
