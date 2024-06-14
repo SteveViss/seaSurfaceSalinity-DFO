@@ -23,6 +23,8 @@ nSampleByGroup <- 10
 ### Prepare cluster
 future::plan(future::multicore, workers = 10)
 
+# Petite amélioration ici, si nrow(data) < (nGroup * nSampleByGroup), prend toute les données de cette journée. Ca devrait améliorer la couverture temporelle.
+
 training_data <- files |>
     dplyr::filter(lubridate::year(timestamp) >= 2015) |>
     dplyr::pull(path) |>
@@ -67,6 +69,8 @@ training_set_locations <- dplyr::select(training_data, lon, lat) |>
 ## Random forest
 
 ### Train base model
+
+Default model. This model will be used for comparison during the tuning hyperparameters step.
 
 ```{r}
 training_data <- readRDS("data/randomForest/50bins_10samples/training_data_daily.rds") |>
@@ -136,37 +140,6 @@ saveRDS(hyper_grid, "data/randomForest/50bins_10samples/hypergrid.rds")
 
 RMSE is computed with sub-sample within the training set the for hyperparameters tuning
 
-### Model validation
-
-#### RMSE vs insitu data
-
-```{r}
-library(feather)
-files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
-files <- data.frame(
-    path = files,
-    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
-)
-
-### Prepare cluster
-future::plan(future::multicore, workers = 10)
-
-insitu_set <- files |>
-    dplyr::filter(lubridate::year(timestamp) >= 2015) |>
-    dplyr::pull(path) |>
-    furrr::future_map_dfr(\(x) {
-        d_sf <- feather::read_feather(x) |>
-            dplyr::filter(!is.na(IS) & !is.na(TB)) |>
-            sf::st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
-            sf::st_filter(sf::read_sf("data/interpolation_area.shp"))
-        if (nrow(d_sf) > 1) {
-            as.data.frame(d_sf) |>
-                dplyr::bind_cols(sf::st_coordinates(d_sf)) |>
-                dplyr::select(-geometry) |>
-                dplyr::rename(lat = Y, lon = X)
-        }
-    }, .progress = TRUE)
-```
 
 #### Get importance of variable in model prediction
 
@@ -229,9 +202,95 @@ p2 <- vip::vip(rf_permutation, num_features = n_features, bar = FALSE) +
 gridExtra::grid.arrange(p1, p2, nrow = 1)
 ```
 
+### Model validation
+
+#### RMSE vs insitu data
+
+```{r}
+library(feather)
+files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
+files <- data.frame(
+    path = files,
+    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+)
+
+### Prepare cluster
+future::plan(future::multicore, workers = 10)
+
+insitu_set <- files |>
+    dplyr::filter(lubridate::year(timestamp) >= 2015) |>
+    dplyr::pull(path) |>
+    furrr::future_map_dfr(\(x) {
+        d_sf <- feather::read_feather(x) |>
+            dplyr::filter(!is.na(IS) & !is.na(TB)) |>
+            sf::st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
+            sf::st_filter(sf::read_sf("data/interpolation_area.shp"))
+        if (nrow(d_sf) > 1) {
+            as.data.frame(d_sf) |>
+                dplyr::bind_cols(sf::st_coordinates(d_sf)) |>
+                dplyr::select(-geometry) |>
+                dplyr::rename(lat = Y, lon = X)
+        }
+    }, .progress = TRUE)
+
+insitu_set <- insitu_set |>
+    dplyr::mutate(
+        julianDay = lubridate::yday(date),
+        year = lubridate::year(date)
+    )
+```
+
+Cross validation
+
+```{R}
+# Load selected model
+rf_selected <- readRDS("data/randomForest/50bins_10samples/rf_permutation.rds")
+insitu_set$OC_pred_rf <- predict(rf_selected, insitu_set)$predictions
+
+rmse <- function(a, b) {  sqrt(mean((a - b)^2)) }
+Psquare <- function(x, y) 1 - sum((x - y)^2)/sum((x - mean(x))^2)
+
+insitu_set_without_na <- insitu_set |> dplyr::filter(!is.na(OC))
+rmse_oc <- rmse(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf)
+psquared_oc <- Psquare(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf)
+
+rmse_is <- rmse(insitu_set$IS, insitu_set$OC_pred_rf)
+psquared_is <- Psquare(insitu_set$IS, insitu_set$OC_pred_rf)
+
+library(ggplot2)
+insitu_vs_pred <- ggplot(data=insitu_set, aes(x=IS, y=OC_pred_rf)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_is,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_is,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="In situ salinity  (g kg^(-1))", y="Predicted salinity (g kg^(-1))") +
+    ggtitle("OCTB - Cross validation against in situ salinity")
+
+sat_vs_pred <- ggplot(data=insitu_set, aes(x=OC, y=OC_pred_rf)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_oc,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_oc,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="Satelite derivated salinity (g kg^(-1))", y="Predicted salinity (g kg^(-1))") + 
+    ggtitle("OCTB - Cross validation against satelite derivated salinity")
+
+cross <- gridExtra::grid.arrange(insitu_vs_pred, sat_vs_pred, nrow = 1)
+ggsave(file="figs/cross_validation_rf.png", cross, width = 10, height = 6)
+```
+
 #### Compute figure
 
 ### Validate model
+
+On s'amuse avec des cartes!
 
 1. Figure predicted vs observed with Psquared and RMSE 
 2. Spatial prediction, uniform sampling along NA maps and interpolate to see the result  
