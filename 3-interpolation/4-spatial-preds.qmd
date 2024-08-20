@@ -1,0 +1,41 @@
+---
+title: "Spatial interpolation"
+---
+
+## Compute summary
+
+```{r}
+files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
+files <- data.frame(
+    path = files,
+    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+)
+
+nCells_TB <- purrr::map_df(files$path, \(p){
+    feather::read_feather(p) |>
+        dplyr::filter(!is.na(TB)) |>
+        dplyr::select(lon, lat) |>
+        dplyr::distinct()
+}, .progress = TRUE) |>
+    dplyr::distinct() |>
+    nrow()
+
+
+stats <- purrr::map_df(files$path, \(p){
+    f <- feather::read_feather(p)
+    s <- summary(f$OC, na.rm = TRUE) |>
+        unclass()
+    s["areaCover"] <- (nrow(f) / nCells_TB) * 100
+    s
+}, .progress = TRUE)
+
+stats <- dplyr::bind_cols(files, stats)
+```
+
+```{r}
+# TODO: Ajouter commentaire, pour que Julien puisse tourner le modèle. Mettre sur Github
+# TODO: output du random Forest, 1 raster par jour, baser sur la grille NetCDF
+# TODO: Cropper sur une période, voir le semi variogram pour déterminer la période
+# Ajouter TBOC dans les Feathers
+
+```

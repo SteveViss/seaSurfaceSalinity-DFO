@@ -2,6 +2,36 @@
 title: "Perform DINEOF"
 ---
 
+## References
+
+- https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2006JC003660
+- https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2016GL071178
+
+```{r}
+library(metR)
+library(data.table)
+data(geopotential)
+geopotential <- copy(geopotential)
+geopotential[, gh.t.w := Anomaly(gh) * sqrt(cos(lat * pi / 180)),
+    by = .(lon, lat, month(date))
+]
+
+
+head(training_data)
+
+eof <- EOF(OC ~ lat + lon + TB | year + julianDay, 1:5,
+    data = training_data,
+    B = 100, probs = c(low = 0.1, hig = 0.9)
+)
+
+aao <- cut(eof, 1)
+aao$sdev
+
+library(ggplot2)
+ggplot(aao$left, aes(lon, lat, z = OC)) +
+    geom_contour(aes(color = after_stat(level))) 
+```
+
 ```{r}
 devtools::install_github("marchtaylor/sinkr")
 
@@ -12,8 +42,7 @@ frac.gaps <- 0.5 # the fraction of data with NaNs
 N.S.ratio <- 0.1 # the Noise to Signal ratio for adding noise to data
 x <- (seq(m) * 2 * pi) / m
 t <- (seq(n) * 2 * pi) / n
-Xt <-
-    outer(sin(x), sin(t)) +
+Xt <- outer(sin(x), sin(t)) +
     outer(sin(2.1 * x), sin(2.1 * t)) +
     outer(sin(3.1 * x), sin(3.1 * t)) +
     outer(tanh(x), cos(t)) +

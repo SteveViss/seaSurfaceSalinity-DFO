@@ -2,101 +2,116 @@
 title: "Perform Random forest for interpolation"
 ---
 
-## Sample training data
-
-Uniform sampling along OC distribution for each day
-TB could be NA
-OC values is in the overlap area of TB
-TB and OC overlap in space and time
+## Dependancies 
 
 ```{r}
-library(feather)
+# devtools::install_local("path/to/TIDML/package")
+# Load equinox and solistice reference dates from TIDML package 
+tref <- system.file(
+    "extdata",
+    "tref.rds",
+    package = "TDIML"
+) |> readRDS()
+
+```
+
+## Set target folder and sampling parameters
+
+```{r}
+nGroup <- 50
+nSampleByGroup <- 5
+target_dir <- glue::glue("data/randomForest/{nGroup}bins_{nSampleByGroup}samples")
+```
+
+## Create list of feather files with timestamp
+
+```{r}
 files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
 files <- data.frame(
     path = files,
     timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
 )
+```
 
-nGroup <- 50
-nSampleByGroup <- 10
+## Sample training data
+
+```{r}
+cli::cli_alert_info("Preparing training set...")
 
 ### Prepare cluster
 future::plan(future::multicore, workers = 10)
 
-# Petite amélioration ici, si nrow(data) < (nGroup * nSampleByGroup), prend toute les données de cette journée. Ca devrait améliorer la couverture temporelle.
+# Fix seed for reproducible example 
+set.seed(123)
 
+# Sample data for randomForest training
 training_data <- files |>
-    dplyr::filter(lubridate::year(timestamp) >= 2015) |>
     dplyr::pull(path) |>
     furrr::future_map_dfr(\(x) {
-        d_sf <- feather::read_feather(x) |>
-            dplyr::filter(!is.na(OC) & !is.na(TB)) |>
-            sf::st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
-            sf::st_filter(sf::read_sf("data/interpolation_area.shp"))
-
-        if (nrow(d_sf) > (nGroup * nSampleByGroup)) {
-            as.data.frame(d_sf) |>
-                dplyr::bind_cols(sf::st_coordinates(d_sf)) |>
-                dplyr::select(-geometry) |>
-                dplyr::rename(lat = Y, lon = X) |>
+        d <- feather::read_feather(x) |>
+            dplyr::filter(!is.na(OC) & !is.na(TB))
+        tryCatch({
+            d |>
+                # Generate bins along OC distribution
                 dplyr::mutate(sampling_group = as.numeric(ggplot2::cut_number(OC, nGroup))) |>
                 dplyr::group_by(sampling_group) |>
+                # Uniform random sampling within the bin
                 dplyr::slice_sample(n = nSampleByGroup) |>
                 dplyr::ungroup() |>
                 dplyr::select(-sampling_group)
-        }
-    }, .progress = TRUE)
-
-saveRDS(training_data, "data/randomForest/50bins_10samples/training_data_daily.rds")
+            }, error = function(e) {
+                return(d)
+            })
+        }, .progress = TRUE, .options = furrr::furrr_options(seed = 123)) 
 ```
 
-### Overall locations
+### And solstice and equinox sine variables on training set
 
 ```{r}
-training_set_locations <- dplyr::select(training_data, lon, lat) |>
-    dplyr::distinct() |>
-    sf::st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
-    sf::st_coordinates()
+cli::cli_alert_info("Compute solstice and equinox sins on training set...")
 
-### Create density map - spatial coverage
-```
+sins <- training_data$date |>
+    as.POSIXct() |>
+    TDIML::atime(tref)
 
-### Validate sampled variable distribution 
-
-1. Does is it differs from original dataset? Is the sampling representative of the initial distribution of the predictors.
-2. Does values temporally cover? (count by julian day)
-
-## Random forest
-
-### Train base model
-
-Default model. This model will be used for comparison during the tuning hyperparameters step.
-
-```{r}
-training_data <- readRDS("data/randomForest/50bins_10samples/training_data_daily.rds") |>
+training_data <- training_data |>
     dplyr::mutate(
-        julianDay = lubridate::yday(date),
-        year = lubridate::year(date)
+        year = lubridate::year(date),
+        solSin = sins[,1L],
+        equiSin = sins[,2L]
     ) |>
-    dplyr::select(-is_origin, -IS, -date)
+    dplyr::select(-date, -is_origin, -IS)
 
-# number of features
-n_features <- length(setdiff(names(training_data), "OC"))
+saveRDS(training_data, glue::glue("{target_dir}/training_data.rds"))
+```
 
-# train a default random forest model
-default_rf1 <- ranger::ranger(
-    OC ~ .,
-    data = training_data,
-    mtry = floor(n_features / 3),
-    respect.unordered.factors = "order",
-    seed = 123
+### Lookup on OC and TB pixels coverage
+
+```{r}
+cli::cli_alert_info("Assert TB and OC pixels coverage from the training set...")
+
+training_set_locations <- training_data |>
+    dplyr::group_by(lon, lat) |>
+    dplyr::summarise(countOC = sum(!is.na(OC)), countTB = sum(!is.na(TB))) |>
+    dplyr::mutate(countOC = dplyr::na_if(countOC, 0), countTB = dplyr::na_if(countTB, 0))
+
+countOC <- terra::rast(
+    dplyr::select(training_set_locations, lon, lat, countOC),
+    type = "xyz",
+    crs = terra::crs("epsg:4326")
 )
 
-# get OOB RMSE
-(default_rmse <- sqrt(default_rf1$prediction.error))
+countTB <- terra::rast(
+    dplyr::select(training_set_locations, lon, lat, countTB),
+    type = "xyz",
+    crs = terra::crs("epsg:4326")
+)
 
-saveRDS(default_rf1, "data/randomForest/50bins_10samples/default_ref_rf1.rds")
+mapview::mapview(countOC)
+mapview::mapview(countTB)
 ```
+
+## Random forest
 
 #### Hyperparameters tunning 
 
@@ -104,20 +119,33 @@ https://bradleyboehmke.github.io/HOML/random-forest.html
 https://statmath.wu.ac.at/~hornik/DTM/Presentations/pres_ranger.pdf
 
 ```{r}
+# training_data <- readRDS(glue::glue("{target_dir}/training_data.rds"))
+n_features <- length(setdiff(names(training_data), "OC"))
+
 hyper_grid <- expand.grid(
+    formula = c(
+        "OC ~ lon + lat + year + solSin + equiSin",
+        "OC ~ lon + lat + year + solSin + equiSin + TB"
+    ),
     mtry = 1:n_features,
     min.node.size = c(1, 3, 5, 10),
     replace = FALSE,
     sample.fraction = c(.5, .63, .8),
     rmse = NA
-)
+) |>
+    dplyr::mutate(
+        modelOCTB = stringr::str_detect(formula, "TB")
+    ) |>
+    dplyr::filter(!(!modelOCTB & mtry == 6)) # This combinaison is not possible as the number of mtry is superior to the number of independant variables
+
 
 # execute full cartesian grid search
-for (i in seq_len(nrow(hyper_grid))) {
+for (i in cli::cli_progress_along(seq_len(nrow(hyper_grid)), "Hyperparameters tuning")) {
+    form <- eval(parse(text = as.character(hyper_grid$formula[i])))
     # fit model for ith hyperparameter combination
     fit <- ranger::ranger(
-        formula = OC ~ .,
-        data = training_data,
+        formula = form,
+        data = dplyr::select(training_data, all.vars(form)),
         num.trees = n_features * 10,
         mtry = hyper_grid$mtry[i],
         min.node.size = hyper_grid$min.node.size[i],
@@ -127,173 +155,203 @@ for (i in seq_len(nrow(hyper_grid))) {
         seed = 123,
         respect.unordered.factors = "order",
     )
+
     # export OOB error
     hyper_grid$rmse[i] <- sqrt(fit$prediction.error)
 }
 
-hyper_grid <- hyper_grid |>
-    dplyr::arrange(rmse) |>
-    dplyr::mutate(perc_gain = (default_rmse - rmse) / default_rmse * 100)
-
-saveRDS(hyper_grid, "data/randomForest/50bins_10samples/hypergrid.rds")
+saveRDS(hyper_grid, glue::glue("{target_dir}/hypergrids.rds"))
 ```
 
-RMSE is computed with sub-sample within the training set the for hyperparameters tuning
+Ranger function subsample the training set to compute the prediction error (RMSE). We then use the RMSE value to find the most accurate set of hyperparameters for the model.
 
+#### Compute the importance of each variable for each selected models (OC and OCTB).
 
-#### Get importance of variable in model prediction
+```{r}
+cli::cli_alert_info("Compute variable importance for each selected models (OC and OCTB)")
 
+# Load pre-computed data.frames
+training_data <- readRDS(glue::glue("{target_dir}/training_data_daily.rds"))
+hyper_grid <- readRDS(glue::glue("{target_dir}/hypergrids.rds")) |>
+    dplyr::arrange(rmse)
+
+# Isolate selected model with minimal RMSE
+selected_model <- list(
+    OCTB = dplyr::filter(hyper_grid, modelOCTB) |>
+        dplyr::slice_min(n = 1, order_by = rmse) |>
+        dplyr::mutate(formula = as.character(formula)) |>
+        as.list(),
+    OC = dplyr::filter(hyper_grid, !modelOCTB) |>
+        dplyr::slice_min(n = 1, order_by = rmse) |>
+        dplyr::mutate(formula = as.character(formula)) |>
+        as.list()
+)
+
+# Compute impurity and permutation model importance
+vars_importance <- purrr::map(selected_model, \(model){
+    compute_mod <- c("impurity", "permutation")
+    outputs <- purrr::map(compute_mod, \(imp){
+        form <- eval(parse(text = as.character(model$formula)))
+        mod <- ranger::ranger(
+            formula = form,
+            data = dplyr::select(training_data, all.vars(form)),
+            num.trees = 100,
+            mtry = model$mtry,
+            min.node.size = model$min.node.size,
+            replace = model$replace,
+            sample.fraction = model$sample.fraction,
+            respect.unordered.factors = "order",
+            importance = imp,
+            verbose = FALSE,
+            seed = 123
+        )
+    }) |> setNames(compute_mod)
+    return(outputs)
+})
+
+# Save result
+saveRDS(vars_importance, glue::glue("{target_dir}/vars_importance.rds"))
+
+library(ggplot2)
+figs <- list()
+figs$OCTB_impurity <- vip::vip(vars_importance$OCTB$impurity, num_features = vars_importance$OCTB$impurity$num.independent.variables, bar = FALSE) +
+    ggtitle("OCTB - Impurity")
+figs$OCTB_permutation <- vip::vip(vars_importance$OCTB$permutation, num_features = vars_importance$OCTB$permutation$num.independent.variables, bar = FALSE) +
+    ggtitle("OCTB - Permutation")
+figs$OC_impurity <- vip::vip(vars_importance$OC$impurity, num_features = vars_importance$OC$impurity$num.independent.variables, bar = FALSE) +
+    ggtitle("OC - Impurity")
+figs$OC_permutation <- vip::vip(vars_importance$OC$permutation, num_features = vars_importance$OC$permutation$num.independent.variables, bar = FALSE) +
+    ggtitle("OC - Permutation")
+
+imp <- gridExtra::grid.arrange(grobs = figs, nrow = 2)
+ggsave(file = glue::glue("{target_dir}/figs/importances.png"), imp, width = 10, height = 6)
+```
+
+Quick note on variable importance
 
 > The basic idea of the permutation variable importance approach [18] is to consider a variable important if it has a positive effect on the prediction performance. To evaluate this, a tree is grown in the first step, and the prediction accuracy in the OOB observations is calculated. In the second step, any association between the variable of interest x_i and the outcome is broken by permuting the values of all individuals for x_i, and the prediction accuracy is computed again. The difference between the two accuracy values is the permutation importance for x_i from a single tree. The average of all tree importance values in a random forest then gives the random forest permutation importance of this variable. The procedure is repeated for all variables of interest. The package ranger [24] was used in our analyses.
 
 From: https://github.com/imbs-hl/ranger/issues/237
 See: https://academic.oup.com/bioinformatics/article/34/21/3711/4994791
 
-```{r}
-hyper_grid <- readRDS("data/randomForest/50bins_10samples/hypergrid.rds")
-
-training_data <- readRDS("data/randomForest/50bins_10samples/training_data_daily.rds") |>
-    dplyr::mutate(
-        julianDay = lubridate::yday(date),
-        year = lubridate::year(date)
-    ) |>
-    dplyr::select(-is_origin, -IS, -date)
-
-# Hyperparameters selected
-rf_impurity <- ranger::ranger(
-    formula = OC ~ .,
-    data = training_data,
-    num.trees = 100,
-    mtry = hyper_grid[1, "mtry"],
-    min.node.size = hyper_grid[1, "min.node.size"],
-    replace = hyper_grid[1, "replace"],
-    sample.fraction = hyper_grid[1, "sample.fraction"],
-    respect.unordered.factors = "order",
-    importance = "impurity",
-    verbose = FALSE,
-    seed = 123
-)
-
-saveRDS(rf_impurity, "data/randomForest/50bins_10samples/rf_impurity.rds")
-
-# re-run model with permutation-based variable importance
-rf_permutation <- ranger::ranger(
-    formula = OC ~ .,
-    data = training_data,
-    num.trees = 100,
-    mtry = hyper_grid[1, "mtry"],
-    min.node.size = hyper_grid[1, "min.node.size"],
-    replace = hyper_grid[1, "replace"],
-    sample.fraction = hyper_grid[1, "sample.fraction"],
-    importance = "permutation",
-    respect.unordered.factors = "order",
-    verbose = FALSE,
-    seed = 123
-)
-
-saveRDS(rf_permutation, "data/randomForest/50bins_10samples/rf_permutation.rds")
-
-library(ggplot2)
-p1 <- vip::vip(rf_impurity, num_features = n_features, bar = FALSE) + 
-    ggtitle("Impurity")
-p2 <- vip::vip(rf_permutation, num_features = n_features, bar = FALSE) + 
-    ggtitle("Permutation")
-
-gridExtra::grid.arrange(p1, p2, nrow = 1)
-```
 
 ### Model validation
 
-#### RMSE vs insitu data
+#### Compute RMSE with insitu data
 
 ```{r}
-library(feather)
-files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
-files <- data.frame(
-    path = files,
-    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
-)
+# Release laptop memory 
+rm(list=setdiff(ls(), c("files", "tref", "target_dir")))
 
-### Prepare cluster
+# Prepare cluster
 future::plan(future::multicore, workers = 10)
 
+# Get pixels 
 insitu_set <- files |>
-    dplyr::filter(lubridate::year(timestamp) >= 2015) |>
     dplyr::pull(path) |>
     furrr::future_map_dfr(\(x) {
-        d_sf <- feather::read_feather(x) |>
-            dplyr::filter(!is.na(IS) & !is.na(TB)) |>
-            sf::st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
-            sf::st_filter(sf::read_sf("data/interpolation_area.shp"))
-        if (nrow(d_sf) > 1) {
-            as.data.frame(d_sf) |>
-                dplyr::bind_cols(sf::st_coordinates(d_sf)) |>
-                dplyr::select(-geometry) |>
-                dplyr::rename(lat = Y, lon = X)
-        }
+        feather::read_feather(x) |>
+            dplyr::filter(!is.na(IS) & !is.na(TB))
     }, .progress = TRUE)
+
+# Isolate
+sins <- insitu_set$date |>
+    as.POSIXct() |>
+    TDIML::atime(tref)
 
 insitu_set <- insitu_set |>
     dplyr::mutate(
-        julianDay = lubridate::yday(date),
-        year = lubridate::year(date)
+        year = lubridate::year(date),
+        solSin = sins[, 1L],
+        equiSin = sins[, 2L]
     )
 ```
+
+#### Compute RMSE with satelite derivated OC
+
 
 Cross validation
 
 ```{R}
+library(ranger)
+
 # Load selected model
-rf_selected <- readRDS("data/randomForest/50bins_10samples/rf_permutation.rds")
-insitu_set$OC_pred_rf <- predict(rf_selected, insitu_set)$predictions
+# TBOC vs OC
+selected_models <- readRDS(glue::glue("{target_dir}/vars_importance.rds"))
+rf_OCTB_selected <- selected_models$OCTB$permutation
+rf_OC_selected <- selected_models$OC$permutation
+
+insitu_set$OC_pred_rf_OCTB <- predict(rf_OCTB_selected, insitu_set)$predictions
+insitu_set$OC_pred_rf_OC <- predict(rf_OC_selected, insitu_set)$predictions
 
 rmse <- function(a, b) {  sqrt(mean((a - b)^2)) }
 Psquare <- function(x, y) 1 - sum((x - y)^2)/sum((x - mean(x))^2)
 
 insitu_set_without_na <- insitu_set |> dplyr::filter(!is.na(OC))
-rmse_oc <- rmse(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf)
-psquared_oc <- Psquare(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf)
 
-rmse_is <- rmse(insitu_set$IS, insitu_set$OC_pred_rf)
-psquared_is <- Psquare(insitu_set$IS, insitu_set$OC_pred_rf)
+rmse_sat_OCTB <- rmse(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OCTB)
+psquared_sat_OCTB <- Psquare(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OCTB)
+rmse_IS_OCTB <- rmse(insitu_set$IS, insitu_set$OC_pred_rf_OCTB)
+psquared_IS_OCTB <- Psquare(insitu_set$IS, insitu_set$OC_pred_rf_OCTB)
+
+rmse_OC <- rmse(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OC)
+psquared_OC <- Psquare(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OC)
+rmse_vs_IS_OC <- rmse(insitu_set$IS, insitu_set$OC_pred_rf_OC)
+psquared_vs_IS_OC <- Psquare(insitu_set$IS, insitu_set$OC_pred_rf_OC)
 
 library(ggplot2)
-insitu_vs_pred <- ggplot(data=insitu_set, aes(x=IS, y=OC_pred_rf)) +
+
+insitu_vs_predOC <- ggplot(data=insitu_set, aes(x=IS, y=OC_pred_rf_OC)) +
     geom_point(col="Black", alpha = 0.3) +
     scale_x_continuous(limits = c(0,35)) +
     scale_y_continuous(limits = c(0,35)) +
     geom_abline(color = "grey50") +
-    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_is,3)}"), parse = TRUE) +
-    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_is,3)}"), parse = TRUE) +
-    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_vs_IS_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_vs_IS_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
     theme_bw() +
     labs(x="In situ salinity  (g kg^(-1))", y="Predicted salinity (g kg^(-1))") +
-    ggtitle("OCTB - Cross validation against in situ salinity")
+    ggtitle("OC - Cross validation against in situ salinity")
 
-sat_vs_pred <- ggplot(data=insitu_set, aes(x=OC, y=OC_pred_rf)) +
+sat_vs_predOC <- ggplot(data=insitu_set, aes(x=OC, y=OC_pred_rf_OC)) +
     geom_point(col="Black", alpha = 0.3) +
     scale_x_continuous(limits = c(0,35)) +
     scale_y_continuous(limits = c(0,35)) +
     geom_abline(color = "grey50") +
-    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_oc,3)}"), parse = TRUE) +
-    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_oc,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="Satelite derivated salinity (g kg^(-1))", y="Predicted salinity (g kg^(-1))") + 
+    ggtitle("OC - Cross validation against satelite derivated salinity")
+
+insitu_vs_predOCTB <- ggplot(data=insitu_set, aes(x=IS, y=OC_pred_rf_OCTB)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_IS_OCTB,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_IS_OCTB,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="In situ salinity (g kg^(-1))", y="Predicted salinity (g kg^(-1))") +
+    ggtitle("OCTB - Cross validation against in situ salinity")
+
+sat_vs_predOCTB <- ggplot(data=insitu_set, aes(x=OC, y=OC_pred_rf_OCTB)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_sat_OCTB,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_sat_OCTB,3)}"), parse = TRUE) +
     annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
     theme_bw() +
     labs(x="Satelite derivated salinity (g kg^(-1))", y="Predicted salinity (g kg^(-1))") + 
     ggtitle("OCTB - Cross validation against satelite derivated salinity")
 
-cross <- gridExtra::grid.arrange(insitu_vs_pred, sat_vs_pred, nrow = 1)
-ggsave(file="figs/cross_validation_rf.png", cross, width = 10, height = 6)
+cross <- gridExtra::grid.arrange(insitu_vs_predOC, insitu_vs_predOCTB, sat_vs_predOC, sat_vs_predOCTB, nrow = 2)
+ggsave(file=glue::glue("{target_dir}/figs/cross_validation_rf.png"), cross, width = 12, height = 8)
 ```
-
-#### Compute figure
-
-### Validate model
-
-On s'amuse avec des cartes!
-
-1. Figure predicted vs observed with Psquared and RMSE 
-2. Spatial prediction, uniform sampling along NA maps and interpolate to see the result  
 
 ### Notes
 
@@ -305,9 +363,3 @@ There are four main practical disadvantages of RF:
 - It requires quality training data and is highly sensitive to blunders and typos in the data.
 
 Source - https://opengeohub.github.io/spatial-prediction-eml/introduction-to-spatial-and-spatiotemporal-data.html
-
-## Questions Julien
-
-1. Échelle de valeur pour le temps relatif au solstice. Revoir avec julien la fonction, ca semble pas trop clair, dans la fonction du package TIDML, ca semble être la position relative au solstice et non une fonction cos-sin. 
-2. Problème de couverture temporelle pour la validation insitu. Note ca devrait plus être un problème pour si la couverture de TB augmente.
-3. Problème si TB = NA, comment on impute le NA. voir le package randomForest qui le fait nativement mais pas dans le package ranger (voir https://cran.r-project.org/web/packages/missRanger/vignettes/missRanger.html).

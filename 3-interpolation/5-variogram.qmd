@@ -1,0 +1,17 @@
+---
+title: "Spatial-temporal variogram"
+---
+
+```{r}
+ref_rs <- terra::rast("data/ref_raster.nc")
+
+r1 <- feather::read_feather(files$path[1]) |>
+    dplyr::select(lon, lat, OC) |>
+    terra::rast(type = "xyz", extent = terra::ext(ref_rs))
+
+r2 <- feather::read_feather(files$path[2]) |>
+    dplyr::select(lon, lat, OC) |>
+    terra::rast(type = "xyz", extent = terra::ext(ref_rs))
+
+
+```
