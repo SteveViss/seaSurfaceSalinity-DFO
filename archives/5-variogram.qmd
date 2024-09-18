@@ -1,0 +1,98 @@
+---
+title: "Spatial-temporal variogram"
+---
+
+# Generate climatology
+
+## Split by day and month
+
+```{r}
+files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
+daily_df <- data.frame(
+    path = files,
+    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+) |> dplyr::mutate(
+    dayMonth = format(timestamp, "%d-%m"),
+    year = format(timestamp, "%Y")
+) |> dplyr::group_split(dayMonth)
+```
+
+## Load rasters
+
+```{r}
+rs_ref <- terra::rast("data/ref_raster.nc")
+rs_ref[] <- NA
+
+climato <- purrr::map(daily_df, \(d){
+    rs_daily_climato <- purrr::map2(d$path, "OC", \(path, var){
+        feather::read_feather(path) |>
+            dplyr::select(-date, -IS, -is_origin) |>
+            dplyr::filter(!(is.na(TB) & is.na(OC))) |>
+            sf::st_as_sf(coords = c("lon", "lat"), crs = sf::st_crs(4326)) |>
+            terra::rasterize(rs_ref, var)
+    }) |>
+        terra::rast() |>
+        terra::mean(na.rm = TRUE)
+}, .progress = TRUE)
+
+timeseries <- purrr::map_chr(daily_df, \(d){
+    return(paste0(unique(d$dayMonth), "-2000"))
+})
+
+climato_stack <- terra::rast(climato)
+terra::time(climato_stack) <- as.Date(timeseries)
+
+terra::writeRaster(climato, "data/climato_daily_time.tiff")
+```
+
+# Spatial variogram
+
+```{r}
+climato <- terra::rast("data/climato_daily_time.tiff") |> 
+    terra::mean(na.rm = TRUE) |>
+    terra::project("EPSG:2138")
+
+climato_df <- climato |>
+    as.data.frame(xy = TRUE)
+
+# Sample uniform 50000 values
+# idx <- sample(1:nrow(climato_df), 100000)
+v_log <- gstat::variogram(log(mean)~1, ~x+y, data=climato_df)
+
+```
+
+```{r}
+library(gstat)
+v <- readRDS("data/variogram_full_data.rds")
+
+plot(v, ylab=bquote(gamma), xlab=c("h (separation distance in m)"))
+
+# SILL: The value at which the model first flattens out.
+# RANGE: The distance at which the model first flattens out.
+# NUGGET: The value at which the semi-variogram (almost) intercepts the y-value.
+# The variogram may not exhibit a sill if trends are present in the data. In that case, geostatistical analysis should proceed with caution, and at the least, ordinary kriging should be used for mapping.
+
+# climato_df <- as.data.frame(climato, xy = TRUE)
+# n_pixels <- nrow(climato_df)
+
+# climato_df_count <- climato_df |>
+#     tidyr::pivot_longer(cols = 3:ncol(climato_df), names_to = "time", values_to = "salinity", values_drop_na = TRUE) |>
+#     dplyr::mutate(time = strptime(paste0(time, "-2000"), "%d-%m-%Y"))
+
+# climato_df_count <- climato_df_count |> dplyr::group_by(x,y,time) |>
+#     dplyr::count()
+
+# STIDF_climato <- spacetime::stConstruct(climato_df_long, 
+#     space = c("x", "y"), 
+#     time = "time", 
+#     SpatialObj = sp::SpatialPoints(climato_df_long[, c("x", "y")])
+# )
+
+# STFDF_climato <- as(STIDF_daily, "STFDF")
+```
+
+# Autofit variogram 
+
+```{r}
+v_autofit <- automap::autofitVariogram(zinc~1, meuse)
+```

@@ -1,0 +1,135 @@
+---
+title: "Generate training set"
+---
+
+We aim to train a model to interpolate salinity values with a spatial resolution of 1 km and a temporal resolution of 1 day. To train the random forest model, we reduce the data size by sampling from the daily salinity distribution. Specifically, we divide the salinity distribution of each day into 50 distinct intervals and sample 5 values from each interval.
+
+## Set target folder and sampling parameters
+
+Here, we set the sampling parameters
+
+```{r}
+nGroup <- 50
+nSampleByGroup <- 5
+target_dir <- glue::glue("data/randomForest/{nGroup}bins_{nSampleByGroup}samples")
+```
+
+## Create list of feather files with timestamp
+
+We list all the files in the folder where the sampling will be performed.
+
+```{r}
+files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
+files <- data.frame(
+    path = files,
+    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+)
+```
+
+## Sample training data
+
+We performed the sampling in parallel using the package `future`.
+
+```{r}
+### Prepare cluster
+future::plan(future::multicore, workers = 10)
+
+# Fix seed for reproducible example 
+set.seed(123)
+
+# Sample data for randomForest training
+training_data <- files |>
+    dplyr::pull(path) |>
+    furrr::future_map_dfr(\(x) {
+        d <- feather::read_feather(x) |>
+            dplyr::filter(!is.na(OC) & !is.na(TB))
+        tryCatch({
+            d |>
+                # Generate bins along OC distribution
+                dplyr::mutate(sampling_group = as.numeric(ggplot2::cut_number(OC, nGroup))) |>
+                dplyr::group_by(sampling_group) |>
+                # Uniform random sampling within the bin
+                dplyr::slice_sample(n = nSampleByGroup) |>
+                dplyr::ungroup() |>
+                dplyr::select(-sampling_group)
+            }, error = function(e) {
+                return(d)
+            })
+        }, .progress = TRUE, .options = furrr::furrr_options(seed = 123)) 
+```
+
+### Add solstice and equinox sine variables on training set
+
+We load equinox and solistice reference dates from TIDML package 
+Because 
+
+```{r}
+# devtools::install_local("path/to/TIDML/package")
+tref <- system.file(
+    "extdata",
+    "tref.rds",
+    package = "TDIML"
+) |> readRDS()
+
+```
+
+Compute solstice and equinox sins on training set
+
+```{r}
+sins <- training_data$date |>
+    as.POSIXct() |>
+    TDIML::atime(tref)
+
+training_data <- training_data |>
+    dplyr::mutate(
+        year = lubridate::year(date),
+        solSin = sins[,1L],
+        equiSin = sins[,2L]
+    )
+```
+
+## Add neighbors approximation in training set
+
+To incorporate space-time neighbors into the model, we need to extract the TB values approximated by space-time neighbors and add these as columns in the training set. The column `TB_1pixels_1days` represents TB values approximated using neighbors 1 pixel away in space and 1 timestep in time, while `TB_3pixels_3days` and `TB_5pixels_5days` represent TB values approximated using neighbors 3 pixels and 5 pixels away in space, and 3 and 5 timesteps in time, respectively.
+
+We first split the training data 
+
+```{r}
+target_dir_approx_rasters <- file.path("data","raster","TB_approx_neighbors")
+
+training_data_approx <- training_data |> 
+    dplyr::group_split(date) |>  
+    furrr::future_map_dfr(\(g){
+        sel_date <- unique(g$date)
+
+        approx_rasters_path <- list.files(
+            target_dir_approx_rasters, 
+            pattern = glue::glue("TB_{sel_date}.tif$"),
+            full.names = TRUE,
+            recursive = TRUE
+        )
+
+        rasters_names <- stringr::str_replace(
+            dirname(approx_rasters_path), 
+            paste0(target_dir_approx_rasters, "/"), "")
+
+        rasters <- terra::rast(approx_rasters_path) |> setNames(rasters_names)
+        points <- sf::st_as_sf(g, coords = c("lon", "lat"), crs = 4326) 
+
+        points <- cbind(
+                sf::st_coordinates(points),
+                points,
+                terra::extract(rasters, points)
+            ) |> 
+            sf::st_drop_geometry() |>
+            dplyr::rename(lon = X, lat = Y)
+    }, .progress = TRUE)
+
+
+```
+
+We save the `training_data` object
+
+```{r}
+saveRDS(training_data, glue::glue("{target_dir}/training_data.rds"))
+```

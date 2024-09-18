@@ -1,0 +1,129 @@
+---
+title: "Figure interpolation"
+---
+
+## Set target folder
+
+```{r}
+nGroup <- 50
+nSampleByGroup <- 5
+target_dir <- glue::glue("data/randomForest/{nGroup}bins_{nSampleByGroup}samples")
+```
+
+```{r}
+tref <- system.file(
+    "extdata",
+    "tref.rds",
+    package = "TDIML"
+) |> readRDS()
+```
+
+## Create list of feather files with timestamp
+
+```{r}
+files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
+files <- data.frame(
+    path = files,
+    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+)
+```
+
+## Load calibrated model
+
+```{r}
+library(ranger)
+selected_models <- readRDS(glue::glue("{target_dir}/vars_importance.rds"))
+rf_OCTB_selected <- selected_models$OCTB$permutation
+rf_OC_selected <- selected_models$OC$permutation
+```
+
+## Predict model
+
+```{r}
+target_day <- as.Date("2023-07-01")
+rs <- feather::read_feather(files[which(files$timestamp == target_day),"path"])
+
+# Add missing sins predictors based on date 
+sins <- rs$date |>
+    as.POSIXct() |>
+    TDIML::atime(tref)
+
+# Prepare data.frame for predicton
+rs <- rs |>
+    dplyr::mutate(
+        year = lubridate::year(date),
+        solSin = sins[,1L],
+        equiSin = sins[,2L]
+    ) |>
+    dplyr::select(-date, -is_origin, -IS) |>
+    dplyr::filter(!is.na(TB))
+
+# Predict
+rs$OCTB_pred <- predict(rf_OCTB_selected, rs)$predictions
+rs$OC_pred <- predict(rf_OC_selected, rs)$predictions
+
+# Prepare ouptus for visualisation
+obs_OC <- rs |> 
+    dplyr::select(lon, lat, OC) |> 
+    terra::rast(type = "xyz")
+
+pred_OCTB <- rs |> dplyr::select(lon, lat, OC, OCTB_pred) |> 
+    dplyr::mutate(OC = ifelse(is.na(OC), OCTB_pred, OC)) |>
+    dplyr::select(-OCTB_pred) |>
+    terra::rast(type = "xyz")
+
+pred_OC <- rs |> dplyr::select(lon, lat, OC, OC_pred) |> 
+    dplyr::mutate(OC = ifelse(is.na(OC), OC_pred, OC)) |>
+    dplyr::select(-OC_pred) |>
+    terra::rast(type = "xyz")
+
+# Assess result
+pred_stacks <- c(obs_OC, pred_OCTB, pred_OC)
+names(pred_stacks) <- c("obs", "OCTB", "OC")
+terra::plot(pred_stacks)
+```
+
+# Predict based on climato
+
+```{r}
+# Add monthly climatology 
+TB_rs_files <- list.files("../rasters/TB", recursive = TRUE, full.names = TRUE)
+TB_rs_files <- data.frame(
+        path = TB_rs_files,
+        timestamp = as.Date(stringr::str_extract(TB_rs_files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+    )
+
+# Add 5days average window 
+# TB_monthly <- TB_rs_files |> 
+#     dplyr::filter(lubridate::month(timestamp) == lubridate::month(target_day) & lubridate::day(timestamp) == lubridate::day(target_day)) |> 
+#     dplyr::pull(path) |> 
+#     terra::rast() |> 
+#     terra::mean() |> 
+#     terra::as.data.frame(xy = TRUE) |> dplyr::rename(
+#         lon = x,
+#         lat = y, 
+#         TB_monthly = mean
+#     )
+
+# TB_5days <- dplyr::filter(TB_rs_files, timestamp > target_day - lubridate::days(5) & timestamp <= target_day) |> 
+#     dplyr::pull(path) |> 
+#     terra::rast() |> 
+#     terra::mean() |> 
+#     terra::as.data.frame(xy = TRUE) |> dplyr::rename(
+#         lon = x,
+#         lat = y, 
+#         TB_5days = mean
+#     )
+
+# Join monthly average
+# rs <- dplyr::left_join(rs, TB_monthty) |> 
+#     dplyr::left_join(TB_5days)
+```
+
+
+# TODO: pour la prochaine rencontre
+1. Envoyé les données interpolées sur les feathers
+2. Ajouter des explications sur les scripts / fonctions
+4. Écriture du paragraphe
+5. Cutoff à 100 km (*)
+6. Retirer ce qui n'est pas pertinent pour Jul

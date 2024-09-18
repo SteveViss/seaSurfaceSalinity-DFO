@@ -1,0 +1,61 @@
+---
+title: "Replace NAs with neighbors approximation"
+---
+
+To enhance the model with temporal and spatial trends and minimize NA values for the TB variable, we used a neighbor-based approximation method. This involved filling in NA values by considering neighboring data within a 1-day and 1-pixel radius, then extending to 3 days and 3 pixels, and finally 5 days and 5 pixels. Functions involved in this approximation are declared at this location `scripts/spacetime_neighbors_approximation.R`.
+
+```{r}
+# We load the function which will perform the neighbors approximation
+source("scripts/spacetime_neighbors_approximation.R")
+
+# We first generate a dataframe with all the TB and timestamps
+TB_rs_path <- list.files("data/raster/TB", pattern = "*.tif", full.names = TRUE)
+TB_files <- data.frame(
+    TB_path = TB_rs_path,
+    timestamp = as.Date(stringr::str_extract(TB_rs_path, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+)
+
+# Apply the approximation function on TB stack
+TB_rasters <- terra::rast(TB_files$TB_path)
+terra::time(TB_rasters) <- TB_files$timestamp
+
+# Run for 5 pixels in space and 5 days in time
+# Target folder means where the raster outputs will be stored
+apply_st_neighbors_on_stack(
+    stack = TB_rasters,
+    timestamps = TB_files$timestamp, 
+    target_folder = "/home/steve/Documents/outputs_DFO", 
+    n_cores = 8, 
+    n_neighbors = 5, 
+    temp_window = 5, 
+    agg_fun = mean
+)
+
+# Run for 3 pixels in space and 3 days in time
+apply_st_neighbors_on_stack(
+    stack = TB_rasters,
+    timestamps = TB_files$timestamp, 
+    target_folder = "/home/steve/Documents/outputs_DFO", 
+    n_cores = 8, 
+    n_neighbors = 3, 
+    temp_window = 3, 
+    agg_fun = mean
+)
+
+# Run for 1 pixels in space and 1 days in time
+apply_st_neighbors_on_stack(
+    stack = TB_rasters,
+    timestamps = TB_files$timestamp, 
+    target_folder = "/home/steve/Documents/outputs_DFO", 
+    n_cores = 8, 
+    n_neighbors = 1, 
+    temp_window = 1, 
+    agg_fun = mean
+)
+```
+
+
+
+```{R}
+
+```

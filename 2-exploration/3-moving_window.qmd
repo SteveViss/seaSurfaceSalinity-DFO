@@ -1,0 +1,93 @@
+---
+title: "Proportion of pixels with values"
+---
+
+## Load rasters
+
+```{R load-rasters}
+rs_filenames <- list.files("data/SSS-OC-prep", pattern = "*.tif$", full.names = TRUE)
+rasters <- terra::rast(rs_filenames)
+```
+
+### Count pixels in Gulf and Saint-lawrence river
+
+```{R}
+ne_land <- rnaturalearth::ne_download(category = "physical", type = "land", returnclass = "sf", scale = "large") |> sf::st_make_valid()
+
+rs_land <- terra::rasterize(ne_land, rasters[[1]])
+
+ncells_water <- terra::classify(rs_land, rbind(c(1, NA), c(NA, 1))) |>
+    terra::global(fun="notNA")
+
+mapview::mapview(terra::classify(rs_land, rbind(c(1, NA), c(NA, 1))))
+
+cover <- lapply(rasters, \(r){
+    (terra::global(r, fun="notNA") / ncells_water) * 100
+}) |> dplyr::bind_rows()
+
+cover$timestamp <- terra::time(rasters)
+```
+
+### Count pixels for area of interest
+
+```{R}
+area_of_interest_shp <- sf::st_read("data/interpolation_area.shp") 
+area_of_interest_rs <- area_of_interest_shp |>
+    terra::rasterize(rasters[[1]])
+
+ncells <- length(area_of_interest_rs[area_of_interest_rs == 1])
+
+cover <- lapply(rasters, \(r){
+    r <- r |> terra::crop(area_of_interest_shp, mask = TRUE) 
+    (terra::global(r, fun="notNA") / ncells) * 100
+}) |> dplyr::bind_rows()
+
+cover$timestamp <- terra::time(rasters)
+cover$dayMonth <- format(cover$timestamp, format="%m-%d")
+cover$year <- format(cover$timestamp,format="%Y")
+
+library(ggplot2)
+ggplot(cover, aes(y = notNA, x = timestamp)) + 
+    facet_wrap(~year, scales = "free_x") + geom_line() 
+
+ggplot(cover, aes(x=as.Date(dayMonth, format = "%m-%d"), y=notNA, group = year, color = year)) + 
+    geom_point(alpha=0.5) +
+    scale_x_date(date_labels = "%b")
+```
+
+### Grouping by temporal window
+
+Aggregate values based on 5 days, 10 days, and 15 days time windows
+
+1. Create group ID by window
+```{R}
+window_group <- cover |> 
+    dplyr::mutate(window_5days = cut(timestamp, "5 days")) |>
+    dplyr::mutate(window_10days = cut(timestamp, "10 days")) |>
+    dplyr::mutate(window_15days = cut(timestamp, "15 days")) |>
+    dplyr::mutate(raster_id = terra::nlyr(rasters))
+
+wg_filter <- dplyr::filter(window_group, year >= 2020)
+
+window5days <- terra::tapp(rasters[[wg_filter$raster_id]], index = wg_filter$window_5days, fun = "mean", na.rm = TRUE, cores = 8)
+window10days <- terra::tapp(rasters[[wg_filter$raster_id]], index = wg_filter$window_10days, fun = "mean", na.rm = TRUE, cores = 8)
+window15days <- terra::tapp(rasters[[wg_filter$raster_id]], index = wg_filter$window_15days, fun = "mean", na.rm = TRUE,cores = 8)
+```
+
+
+```{R}
+window5days_pixels_count <- window5days |> terra::crop(area_of_interest_shp, mask = TRUE) |>
+    terra::app(function(x) sum(!is.na(x)))
+
+window10days_pixels_count <- window10days |> terra::crop(area_of_interest_shp, mask = TRUE) |>
+    terra::app(function(x) sum(!is.na(x)))
+
+window15days_pixels_count <- window15days |> terra::crop(area_of_interest_shp, mask = TRUE) |>
+    terra::app(function(x) sum(!is.na(x)))
+
+leafsync::sync(
+    mapview::mapview(window5days_pixels_count), 
+    mapview::mapview(window10days_pixels_count),
+    mapview::mapview(window15days_pixels_count)
+)
+```

@@ -1,0 +1,61 @@
+---
+title: "Perform SOM for interpolation"
+---
+
+
+```{R}
+install.packages("kohonen")
+library(kohonen)
+```
+
+```{R}
+training_data <- readRDS("data/randomForest/50bins_10samples/training_data_daily.rds")
+```
+
+
+```{R}
+# https://stats.stackexchange.com/questions/282288/som-grid-size-suggested-by-vesanto
+# https://medium.com/@yolandawiyono98/introducing-self-organising-maps-som-2b6af3e9b0ff
+# https://rpubs.com/inayatus/som
+# https://sci-hub.se/10.1016/j.rse.2012.11.025
+
+nCols <- floor(sqrt(5*sqrt(nrow(training_data))))
+set.seed(123)
+
+training_data <- dplyr::select(training_data, -date, -IS, -is_origin, -julianDay)
+ads_grid <- kohonen::somgrid(xdim = nCols, ydim = nCols, topo = "hexagonal")
+
+training_scaled_data <- scale(training_data)
+
+class <- kohonen::xyf(training_scaled_data[,-1], classvec2classmat(training_scaled_data[,1]), ads_grid, rlen = 500)
+
+ads_model <- som(training_scaled_data, ads_grid, rlen = 500, radius = 2.5, keep.data = TRUE,
+                  dist.fcts = "euclidean")
+```
+
+
+```{R}
+data(wines)
+
+## som
+som.wines <- som(scale(wines), grid = somgrid(5, 5, "hexagonal"))
+summary(som.wines)
+nunits(som.wines)
+
+## xyf
+xyf.wines <- xyf(scale(wines), vintages, grid = somgrid(5, 5, "hexagonal"))
+summary(xyf.wines)
+
+## supersom example
+data(yeast)
+yeast.supersom <- supersom(yeast, somgrid(6, 6, "hexagonal"),
+                        whatmap = c("alpha", "cdc15", "cdc28", "elu"),
+                        maxNA.fraction = .5)
+
+plot(yeast.supersom, "changes")
+
+obj.classes <- as.integer(yeast$class)
+colors <- c("yellow", "green", "blue", "red", "orange")
+plot(yeast.supersom, type = "mapping", col = colors[obj.classes],
+    pch = obj.classes, main = "yeast data")
+```
