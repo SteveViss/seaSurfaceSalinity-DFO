@@ -12,7 +12,6 @@ nSampleByGroup <- 5
 target_dir <- glue::glue("data/randomForest/{nGroup}bins_{nSampleByGroup}samples")
 
 training_data <- readRDS(glue::glue("{target_dir}/training_data.rds"))
-n_features <- length(setdiff(names(training_data), "OC"))
 ```
 
 #### Hyperparameters tunning 
@@ -29,7 +28,7 @@ hyper_grid <- expand.grid(
         "OC ~ lon + lat + year + solSin + equiSin + TB_3pixels_3days",
         "OC ~ lon + lat + year + solSin + equiSin + TB_5pixels_5days"
     ),
-    mtry = 1:n_features,
+    mtry = 1:6, # Number of independant variables used in the model
     min.node.size = c(1, 3, 5, 10),
     replace = FALSE,
     sample.fraction = c(.5, .63, .8),
@@ -60,6 +59,7 @@ for (i in cli::cli_progress_along(seq_len(nrow(hyper_grid)), "Hyperparameters tu
     # export OOB error
     hyper_grid$rmse[i] <- sqrt(fit$prediction.error)
 }
+
 
 saveRDS(hyper_grid, glue::glue("{target_dir}/hypergrids.rds"))
 ```
