@@ -4,19 +4,30 @@ title: "Perform Random forest for interpolation"
 
 ## Random forest
 
+#### Load training set
+
+```{r}
+nGroup <- 50
+nSampleByGroup <- 5
+target_dir <- glue::glue("data/randomForest/{nGroup}bins_{nSampleByGroup}samples")
+
+training_data <- readRDS(glue::glue("{target_dir}/training_data.rds"))
+n_features <- length(setdiff(names(training_data), "OC"))
+```
+
 #### Hyperparameters tunning 
 
 https://bradleyboehmke.github.io/HOML/random-forest.html
 https://statmath.wu.ac.at/~hornik/DTM/Presentations/pres_ranger.pdf
 
 ```{r}
-training_data <- readRDS(glue::glue("{target_dir}/training_data.rds"))
-n_features <- length(setdiff(names(training_data), "OC"))
-
 hyper_grid <- expand.grid(
     formula = c(
         "OC ~ lon + lat + year + solSin + equiSin",
-        "OC ~ lon + lat + year + solSin + equiSin + TB"
+        "OC ~ lon + lat + year + solSin + equiSin + TB",
+        "OC ~ lon + lat + year + solSin + equiSin + TB_1pixels_1days",
+        "OC ~ lon + lat + year + solSin + equiSin + TB_3pixels_3days",
+        "OC ~ lon + lat + year + solSin + equiSin + TB_5pixels_5days"
     ),
     mtry = 1:n_features,
     min.node.size = c(1, 3, 5, 10),
@@ -28,7 +39,6 @@ hyper_grid <- expand.grid(
         modelOCTB = stringr::str_detect(formula, "TB")
     ) |>
     dplyr::filter(!(!modelOCTB & mtry == 6)) # This combinaison is not possible as the number of mtry is superior to the number of independant variables
-
 
 # execute full cartesian grid search
 for (i in cli::cli_progress_along(seq_len(nrow(hyper_grid)), "Hyperparameters tuning")) {

@@ -131,5 +131,5 @@ training_data_approx <- training_data |>
 We save the `training_data` object
 
 ```{r}
-saveRDS(training_data, glue::glue("{target_dir}/training_data.rds"))
+saveRDS(training_data_approx, glue::glue("{target_dir}/training_data.rds"))
 ```
