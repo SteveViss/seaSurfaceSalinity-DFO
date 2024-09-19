@@ -2,7 +2,7 @@
 title: "Figure interpolation"
 ---
 
-## Set target folder
+## Set model folder
 
 ```{r}
 nGroup <- 50
@@ -41,9 +41,10 @@ rf_OC_selected <- selected_models$OC$permutation
 
 ```{r}
 target_day <- as.Date("2023-07-01")
-rs <- feather::read_feather(files[which(files$timestamp == target_day),"path"])
+target_dir_approx_rasters <- file.path("data", "raster", "TB_approx_neighbors")
+rs <- feather::read_feather(files[which(files$timestamp == target_day), "path"])
 
-# Add missing sins predictors based on date 
+# Add missing sins predictors based on date
 sins <- rs$date |>
     as.POSIXct() |>
     TDIML::atime(tref)
@@ -52,27 +53,58 @@ sins <- rs$date |>
 rs <- rs |>
     dplyr::mutate(
         year = lubridate::year(date),
-        solSin = sins[,1L],
-        equiSin = sins[,2L]
+        solSin = sins[, 1L],
+        equiSin = sins[, 2L]
     ) |>
-    dplyr::select(-date, -is_origin, -IS) |>
+    dplyr::select(-is_origin, -IS) |>
     dplyr::filter(!is.na(TB))
+
+rs <- rs |>
+    dplyr::group_split(date) |>
+    purrr::map_df(\(g){
+        sel_date <- unique(g$date)
+
+        approx_rasters_path <- list.files(
+            target_dir_approx_rasters,
+            pattern = glue::glue("TB_{sel_date}.tif$"),
+            full.names = TRUE,
+            recursive = TRUE
+        )
+
+        rasters_names <- stringr::str_replace(
+            dirname(approx_rasters_path),
+            paste0(target_dir_approx_rasters, "/"), ""
+        )
+
+        rasters <- terra::rast(approx_rasters_path) |> setNames(rasters_names)
+        points <- sf::st_as_sf(g, coords = c("lon", "lat"), crs = 4326)
+
+        points <- cbind(
+            sf::st_coordinates(points),
+            points,
+            terra::extract(rasters, points)
+        ) |>
+            sf::st_drop_geometry() |>
+            dplyr::rename(lon = X, lat = Y)
+    }, .progress = TRUE)
 
 # Predict
 rs$OCTB_pred <- predict(rf_OCTB_selected, rs)$predictions
 rs$OC_pred <- predict(rf_OC_selected, rs)$predictions
 
 # Prepare ouptus for visualisation
-obs_OC <- rs |> 
-    dplyr::select(lon, lat, OC) |> 
+obs_OC <- rs |>
+    dplyr::select(lon, lat, OC) |>
     terra::rast(type = "xyz")
 
-pred_OCTB <- rs |> dplyr::select(lon, lat, OC, OCTB_pred) |> 
+pred_OCTB <- rs |>
+    dplyr::select(lon, lat, OC, OCTB_pred) |>
     dplyr::mutate(OC = ifelse(is.na(OC), OCTB_pred, OC)) |>
     dplyr::select(-OCTB_pred) |>
     terra::rast(type = "xyz")
 
-pred_OC <- rs |> dplyr::select(lon, lat, OC, OC_pred) |> 
+pred_OC <- rs |>
+    dplyr::select(lon, lat, OC, OC_pred) |>
     dplyr::mutate(OC = ifelse(is.na(OC), OC_pred, OC)) |>
     dplyr::select(-OC_pred) |>
     terra::rast(type = "xyz")

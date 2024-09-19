@@ -20,7 +20,7 @@ TB_rasters <- terra::rast(TB_files$TB_path)
 terra::time(TB_rasters) <- TB_files$timestamp
 
 # Run for 5 pixels in space and 5 days in time
-# Target folder means where the raster outputs will be stored
+# Target folder means where the raster outputs will be write
 apply_st_neighbors_on_stack(
     stack = TB_rasters,
     timestamps = TB_files$timestamp, 
