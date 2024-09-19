@@ -28,7 +28,7 @@ files <- data.frame(
 
 ## Sample training data
 
-We performed the sampling in parallel using the package `future`.
+This R script sets up parallel processing to sample data from multiple Feather files. The process includes filtering rows based on specific conditions, binning the data into groups based on the distribution of `OC` variable, performing random sampling within each group, and handling any errors during the process. It leverages multicore computing for efficiency and uses reproducibility techniques to ensure that random sampling can be repeated consistently.
 
 ```{r}
 ### Prepare cluster
@@ -73,7 +73,7 @@ tref <- system.file(
 
 ```
 
-Compute solstice and equinox sins on training set
+Compute solstice and equinox sins on training set based on the `TDIML::atime` function.
 
 ```{r}
 sins <- training_data$date |>

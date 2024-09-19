@@ -54,8 +54,3 @@ apply_st_neighbors_on_stack(
 )
 ```
 
-
-
-```{R}
-
-```

@@ -1,0 +1,241 @@
+
+---
+title: "Perform model validation"
+---
+
+### Model validation
+
+#### Compute RMSE with insitu data
+
+```{r}
+files <- list.files("data/Feather", pattern = "*.feather", full.names = TRUE)
+files <- data.frame(
+    path = files,
+    timestamp = as.Date(stringr::str_extract(files, "[0-9]{4}-[0-9]{2}-[0-9]{2}"))
+)
+```
+
+Prepare model variables to perform prediction
+
+```{r}
+future::plan(future::multicore, workers = 10)
+
+insitu_set <- insitu_set |>
+    dplyr::mutate(
+        year = lubridate::year(date),
+        solSin = sins[, 1L],
+        equiSin = sins[, 2L]
+    )
+
+target_dir_approx_rasters <- file.path("data", "raster", "TB_approx_neighbors")
+
+insitu_set_approx <- insitu_set |>
+    dplyr::group_split(date) |>
+    furrr::future_map_dfr(\(g){
+        sel_date <- unique(g$date)
+
+        approx_rasters_path <- list.files(
+            target_dir_approx_rasters,
+            pattern = glue::glue("TB_{sel_date}.tif$"),
+            full.names = TRUE,
+            recursive = TRUE
+        )
+
+        rasters_names <- stringr::str_replace(
+            dirname(approx_rasters_path),
+            paste0(target_dir_approx_rasters, "/"), ""
+        )
+
+        rasters <- terra::rast(approx_rasters_path) |> setNames(rasters_names)
+        points <- sf::st_as_sf(g, coords = c("lon", "lat"), crs = 4326)
+
+        points <- cbind(
+            sf::st_coordinates(points),
+            points,
+            terra::extract(rasters, points)
+        ) |>
+            sf::st_drop_geometry() |>
+            dplyr::rename(lon = X, lat = Y)
+    }, .progress = TRUE)
+```
+
+#### Compute accuracy metrics (RMSE and Psquared)
+
+Cross validation
+
+```{R}
+library(ranger)
+library(dplyr)
+library(ggplot2)
+library(glue)
+library(gridExtra)
+
+# Load selected model
+selected_models <- readRDS(glue("{target_dir}/vars_importance.rds"))
+rf_models <- list(
+  OCTB = selected_models$OCTB$permutation,
+  OC = selected_models$OC$permutation
+)
+
+# Predict function for both models
+insitu_set <- insitu_set %>%
+  mutate(
+    OC_pred_rf_OCTB = predict(rf_models$OCTB, insitu_set)$predictions,
+    OC_pred_rf_OC = predict(rf_models$OC, insitu_set)$predictions
+  )
+
+# Define RMSE and Psquare functions
+rmse <- function(a, b) sqrt(mean((a - b)^2))
+Psquare <- function(x, y) 1 - sum((x - y)^2) / sum((x - mean(x))^2)
+
+# Filter non-NA values
+insitu_set_without_na <- insitu_set %>% filter(!is.na(OC))
+
+# Calculate metrics
+calculate_metrics <- function(actual, predicted) {
+  list(
+    rmse = rmse(actual, predicted),
+    psquared = Psquare(actual, predicted)
+  )
+}
+
+metrics_OCTB <- calculate_metrics(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OCTB)
+metrics_OC <- calculate_metrics(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OC)
+metrics_IS_OCTB <- calculate_metrics(insitu_set$IS, insitu_set$OC_pred_rf_OCTB)
+metrics_vs_IS_OC <- calculate_metrics(insitu_set$IS, insitu_set$OC_pred_rf_OC)
+
+# Helper function to create plot
+create_plot <- function(data, x_var, y_var, x_label, y_label, title, metrics, n) {
+  ggplot(data, aes(x = !!sym(x_var), y = !!sym(y_var))) +
+    geom_point(color = "Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0, 35)) +
+    scale_y_continuous(limits = c(0, 35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue("P^2 == {round(metrics$psquared, 3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue("rmse == {round(metrics$rmse, 3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue("n == {n}"), parse = TRUE) +
+    theme_bw() +
+    labs(x = x_label, y = y_label) +
+    ggtitle(title)
+}
+
+# Create plots
+insitu_vs_predOC <- create_plot(
+  insitu_set, "IS", "OC_pred_rf_OC",
+  "In situ salinity (g kg^(-1))", "Predicted salinity (g kg^(-1))",
+  "OC - Cross validation against in situ salinity", metrics_vs_IS_OC, nrow(insitu_set_without_na)
+)
+
+sat_vs_predOC <- create_plot(
+  insitu_set, "OC", "OC_pred_rf_OC",
+  "Satellite-derived salinity (g kg^(-1))", "Predicted salinity (g kg^(-1))",
+  "OC - Cross validation against satellite-derived salinity", metrics_OC, nrow(insitu_set_without_na)
+)
+
+insitu_vs_predOCTB <- create_plot(
+  insitu_set, "IS", "OC_pred_rf_OCTB",
+  "In situ salinity (g kg^(-1))", "Predicted salinity (g kg^(-1))",
+  "OCTB - Cross validation against in situ salinity", metrics_IS_OCTB, nrow(insitu_set_without_na)
+)
+
+sat_vs_predOCTB <- create_plot(
+  insitu_set, "OC", "OC_pred_rf_OCTB",
+  "Satellite-derived salinity (g kg^(-1))", "Predicted salinity (g kg^(-1))",
+  "OCTB - Cross validation against satellite-derived salinity", metrics_OCTB, nrow(insitu_set_without_na)
+)
+
+# Arrange and save the plots
+cross <- grid.arrange(insitu_vs_predOC, insitu_vs_predOCTB, sat_vs_predOC, sat_vs_predOCTB, nrow = 2)
+ggsave(glue("{target_dir}/figs/cross_validation_rf.png"), cross, width = 12, height = 8)
+
+
+library(ranger)
+
+# Load selected model
+# TBOC vs OC
+selected_models <- readRDS(glue::glue("{target_dir}/vars_importance.rds"))
+rf_OCTB_selected <- selected_models$OCTB$permutation
+rf_OC_selected <- selected_models$OC$permutation
+
+insitu_set$OC_pred_rf_OCTB <- predict(rf_OCTB_selected, insitu_set)$predictions
+insitu_set$OC_pred_rf_OC <- predict(rf_OC_selected, insitu_set)$predictions
+
+rmse <- function(a, b) {  sqrt(mean((a - b)^2)) }
+Psquare <- function(x, y) 1 - sum((x - y)^2)/sum((x - mean(x))^2)
+
+insitu_set_without_na <- insitu_set |> dplyr::filter(!is.na(OC))
+
+rmse_sat_OCTB <- rmse(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OCTB)
+psquared_sat_OCTB <- Psquare(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OCTB)
+rmse_IS_OCTB <- rmse(insitu_set$IS, insitu_set$OC_pred_rf_OCTB)
+psquared_IS_OCTB <- Psquare(insitu_set$IS, insitu_set$OC_pred_rf_OCTB)
+
+rmse_OC <- rmse(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OC)
+psquared_OC <- Psquare(insitu_set_without_na$OC, insitu_set_without_na$OC_pred_rf_OC)
+rmse_vs_IS_OC <- rmse(insitu_set$IS, insitu_set$OC_pred_rf_OC)
+psquared_vs_IS_OC <- Psquare(insitu_set$IS, insitu_set$OC_pred_rf_OC)
+
+library(ggplot2)
+
+insitu_vs_predOC <- ggplot(data=insitu_set, aes(x=IS, y=OC_pred_rf_OC)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_vs_IS_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_vs_IS_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="In situ salinity  (g kg^(-1))", y="Predicted salinity (g kg^(-1))") +
+    ggtitle("OC - Cross validation against in situ salinity")
+
+sat_vs_predOC <- ggplot(data=insitu_set, aes(x=OC, y=OC_pred_rf_OC)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_OC,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="Satelite derivated salinity (g kg^(-1))", y="Predicted salinity (g kg^(-1))") + 
+    ggtitle("OC - Cross validation against satelite derivated salinity")
+
+insitu_vs_predOCTB <- ggplot(data=insitu_set, aes(x=IS, y=OC_pred_rf_OCTB)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_IS_OCTB,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_IS_OCTB,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="In situ salinity (g kg^(-1))", y="Predicted salinity (g kg^(-1))") +
+    ggtitle("OCTB - Cross validation against in situ salinity")
+
+sat_vs_predOCTB <- ggplot(data=insitu_set, aes(x=OC, y=OC_pred_rf_OCTB)) +
+    geom_point(col="Black", alpha = 0.3) +
+    scale_x_continuous(limits = c(0,35)) +
+    scale_y_continuous(limits = c(0,35)) +
+    geom_abline(color = "grey50") +
+    annotate("text", x = 4, y = 30, label = glue::glue("P ^ 2 == {round(psquared_sat_OCTB,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 28, label = glue::glue("rmse == {round(rmse_sat_OCTB,3)}"), parse = TRUE) +
+    annotate("text", x = 4, y = 26, label = glue::glue("n == {nrow(insitu_set_without_na)}"), parse = TRUE) +
+    theme_bw() +
+    labs(x="Satelite derivated salinity (g kg^(-1))", y="Predicted salinity (g kg^(-1))") + 
+    ggtitle("OCTB - Cross validation against satelite derivated salinity")
+
+cross <- gridExtra::grid.arrange(insitu_vs_predOC, insitu_vs_predOCTB, sat_vs_predOC, sat_vs_predOCTB, nrow = 2)
+ggsave(file=glue::glue("{target_dir}/figs/cross_validation_rf.png"), cross, width = 12, height = 8)
+```
+
+### Notes
+
+There are four main practical disadvantages of RF:
+
+- Depending on data and assumptions about data, it can over-fit values without an analyst even noticing it.
+- It predicts well only within the feature space with enough training data. Extrapolation i.e. prediction outside the training space can lead to poor performance (Meyer & Pebesma, 2021).
+- It can be computationally expensive with computational load increasing exponentially with the number of covariates.
+- It requires quality training data and is highly sensitive to blunders and typos in the data.
+
+Source - https://opengeohub.github.io/spatial-prediction-eml/introduction-to-spatial-and-spatiotemporal-data.html
