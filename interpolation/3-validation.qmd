@@ -20,6 +20,17 @@ Prepare model variables to perform prediction
 ```{r}
 future::plan(future::multicore, workers = 10)
 
+insitu_set <- files |>
+    dplyr::pull(path) |>
+    furrr::future_map_dfr(\(x) {
+        feather::read_feather(x) |>
+            dplyr::filter(!is.na(IS) & !is.na(TB))
+    }, .progress = TRUE)
+
+sins <- insitu_set$date |>
+    as.POSIXct() |>
+    TDIML::atime(tref)
+
 insitu_set <- insitu_set |>
     dplyr::mutate(
         year = lubridate::year(date),
